@@ -1,0 +1,19 @@
+{
+  "name": "campaign-knowledge-markup",
+  "version": "0.2.0",
+  "description": "Obsidian plugin for rendering campaign knowledge and united DC check markup as readable previews.",
+  "main": "main.js",
+  "scripts": {
+    "check": "node --check main.js"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "dnd",
+    "ttrpg",
+    "campaign-notes"
+  ],
+  "author": "zagushka",
+  "license": "MIT",
+  "devDependencies": {}
+}

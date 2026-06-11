@@ -1,0 +1,86 @@
+.campaign-knowledge-entry {
+  display: inline-block;
+  max-width: 100%;
+  margin: 0.15rem 0;
+  color: var(--text-normal);
+  vertical-align: top;
+}
+
+.campaign-knowledge-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: baseline;
+  margin-bottom: 0.25rem;
+  line-height: 1.35;
+}
+
+.campaign-knowledge-access {
+  font-weight: 700;
+}
+
+.campaign-knowledge-type {
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.campaign-knowledge-outcomes {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.campaign-knowledge-outcome {
+  display: grid;
+  grid-template-columns: 2.1rem minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: start;
+  min-width: 0;
+  line-height: 1.45;
+}
+
+.campaign-knowledge-outcome-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  padding: 0 0.25rem;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-size: 0.78em;
+  font-weight: 800;
+  line-height: 1.35;
+  user-select: none;
+}
+
+.campaign-knowledge-outcome-body {
+  min-width: 0;
+  white-space: pre-wrap;
+}
+
+.campaign-knowledge-outcome-body > p {
+  margin: 0;
+}
+
+.campaign-knowledge-outcome-success .campaign-knowledge-outcome-icon {
+  color: var(--color-green);
+}
+
+.campaign-knowledge-outcome-failure .campaign-knowledge-outcome-icon {
+  color: var(--color-red);
+}
+
+.campaign-knowledge-outcome-critical-success .campaign-knowledge-outcome-icon {
+  color: var(--color-cyan);
+}
+
+.campaign-knowledge-outcome-critical-failure .campaign-knowledge-outcome-icon {
+  color: var(--color-orange);
+}
