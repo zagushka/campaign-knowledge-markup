@@ -1,9 +1,9 @@
 {
   "id": "campaign-knowledge-markup",
   "name": "Campaign Knowledge Markup",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "minAppVersion": "1.5.0",
-  "description": "Render united DC check markup like [Все]{Внимательность(10)}{Наблюдение} as campaign previews.",
+  "description": "Render campaign checks and DM decision forms in Obsidian previews.",
   "author": "OpenAI Codex",
   "isDesktopOnly": false
 }

@@ -43,6 +43,20 @@ into a compact preview:
 
 The raw markdown remains the source of truth. The plugin only changes presentation.
 
+## DM Decision Cards
+
+Decision cards use the `<!-- dnd-packet: schema: v2 -->` marker and render as
+forms in Live Preview. Cards with `state: draft` are editable; cards with
+`state: processed`, `deferred`, or `emergent` are read-only.
+
+Choose one ordinary option at a time, or click the selected option again to
+clear it. Choosing `Решить позже` or `Не определять заранее` clears ordinary
+choices and the custom answer. Entering a custom answer clears a deferred
+choice. The two deferred choices also have fields for an event or owner.
+
+Every change is saved to the note immediately. To open the raw Markdown, turn
+off `Preview mode` in the plugin settings; turn it on again to show the forms.
+
 ## Supported Syntax
 
 The plugin matches full lines in this shape:
@@ -114,7 +128,7 @@ The command `Toggle campaign knowledge preview` switches between:
 ## Notes and Limitations
 
 - The plugin is tailored to this vault's Russian campaign schema.
-- It is display-only: no authoring helpers, autocomplete, or validation UI.
+- It has no authoring helpers, autocomplete, or validation UI.
 - It expects the campaign check markup to start at the beginning of a rendered line.
 - Matching is structural and type-agnostic: old lines like `[Тип]{Носитель(0)} text` may render as previews if they match `[]{} text`.
 
@@ -124,3 +138,4 @@ The command `Toggle campaign knowledge preview` switches between:
 - `styles.css` - preview styling
 - `manifest.json` - Obsidian plugin manifest
 - `versions.json` - minimum app version map
+- `test.js` - parser and Markdown editing checks

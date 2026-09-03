@@ -84,3 +84,123 @@
 .campaign-knowledge-outcome-critical-failure .campaign-knowledge-outcome-icon {
   color: var(--color-orange);
 }
+
+.dm-decision-card {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0.75rem 0;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+}
+
+.dm-decision-card fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.dm-decision-card legend {
+  padding: 0;
+  font-weight: 700;
+}
+
+.dm-decision-question {
+  margin: 0.65rem 0 0.35rem;
+  font-weight: 600;
+}
+
+.dm-decision-context,
+.dm-decision-choice-detail,
+.dm-decision-result {
+  color: var(--text-muted);
+}
+
+.dm-decision-context {
+  margin-bottom: 0.85rem;
+}
+
+.dm-decision-choices {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.dm-decision-choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: start;
+  margin: 0.85rem 0;
+}
+
+.dm-decision-choices label,
+.dm-decision-routes label {
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.dm-decision-choices input[type="checkbox"],
+.dm-decision-routes input[type="checkbox"] {
+  accent-color: var(--interactive-accent);
+}
+
+.dm-decision-choices label:has(input:checked) {
+  color: var(--interactive-accent);
+}
+
+.dm-decision-choice-detail {
+  margin: -0.1rem 0 0.35rem 1.45rem;
+}
+
+.dm-decision-card > fieldset > label {
+  display: block;
+  margin-top: 0.85rem;
+  color: var(--text-muted);
+}
+
+.dm-decision-answer,
+.dm-decision-route-detail {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.dm-decision-card textarea,
+.dm-decision-route-detail {
+  margin-top: 0.35rem;
+  padding: 0.5rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.dm-decision-answer {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.dm-decision-routes {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.dm-decision-route {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.dm-decision-card input:focus-visible,
+.dm-decision-card textarea:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+.dm-decision-card-read-only {
+  opacity: 0.9;
+}
