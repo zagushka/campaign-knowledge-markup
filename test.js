@@ -10,7 +10,13 @@ Module._load = function load(request, parent, isMain) {
 };
 
 const Plugin = require("./main.js");
-const { applyDecisionAction, collectDecisionRanges, collectPreviewRanges, parseDecisionCards } = Plugin.__test;
+const {
+  applyDecisionAction,
+  collectDecisionRanges,
+  collectPreviewRanges,
+  decisionWidgetEqKey,
+  parseDecisionCards
+} = Plugin.__test;
 
 const DRAFT = `<!-- dnd-packet: schema: v2 -->
 
@@ -82,6 +88,12 @@ const previewRanges = collectPreviewRanges(PREVIEW_DOCUMENT, [
 assert.deepEqual(previewRanges.map((range) => range.block), [false, true]);
 assert.ok(previewRanges.every((range, index) => index === 0 || previewRanges[index - 1].to <= range.from));
 assert.equal(previewRanges[1].card.raw, PREVIEW_DOCUMENT.slice(previewRanges[1].from));
+
+const answerOnlyCard = parseDecisionCards(DRAFT.replace("Текущий ответ.", "Новый ответ."))[0];
+const changedTitleCard = parseDecisionCards(DRAFT.replace("Связь Эдрика и Марты", "Новая связь"))[0];
+assert.equal(decisionWidgetEqKey(card, "split-a.md"), decisionWidgetEqKey(answerOnlyCard, "split-a.md"));
+assert.notEqual(decisionWidgetEqKey(card, "split-a.md"), decisionWidgetEqKey(changedTitleCard, "split-a.md"));
+assert.notEqual(decisionWidgetEqKey(card, "split-a.md"), decisionWidgetEqKey(card, "split-b.md"));
 
 const apply = (markdown, action) => {
   const change = applyDecisionAction(markdown, "DC-20260904-01", action);

@@ -131,6 +131,7 @@ CampaignKnowledgeMarkupPlugin.__test = {
   applyDecisionAction,
   collectDecisionRanges,
   collectPreviewRanges,
+  decisionWidgetEqKey,
   parseDecisionCards
 };
 
@@ -272,6 +273,21 @@ function collectPreviewRanges(markdown, visibleRanges) {
   return previewRanges.sort((left, right) => left.from - right.from || left.to - right.to);
 }
 
+function decisionWidgetEqKey(card, sourcePath) {
+  return JSON.stringify([
+    sourcePath,
+    card.id,
+    card.state,
+    card.title,
+    card.question,
+    card.contextMarkdown,
+    card.answerLabel,
+    card.choices.map(({ id, label, text, recommended }) => [id, label, text, recommended]),
+    card.routes.map(({ id, label }) => [id, label]),
+    card.resultMarkdown
+  ]);
+}
+
 function replaceRanges(text, replacements) {
   return replacements
     .slice()
@@ -385,7 +401,7 @@ function dispatchDecisionAction(view, cardId, action) {
   return true;
 }
 
-function syncDecisionCardDom(container, view, cardId) {
+function syncDecisionCardDom(container, view, cardId, syncAnswer = true) {
   const card = parseDecisionCards(view.state.doc.toString()).find((item) => item.id === cardId);
   if (!card) return;
 
@@ -398,19 +414,22 @@ function syncDecisionCardDom(container, view, cardId) {
   }
 
   const answer = container.querySelector("textarea[data-dm-answer]");
-  if (answer) answer.value = card.answer;
+  if (syncAnswer && answer) answer.value = card.answer;
 
   for (const input of container.querySelectorAll("input[data-dm-route-detail]")) {
     input.value = card.routes.find((route) => route.id === input.dataset.dmRouteDetail)?.detail || "";
   }
 }
 
-function renderDecisionMarkdown(markdown, container, sourcePath, plugin) {
-  if (markdown) void obsidian.MarkdownRenderer.renderMarkdown(markdown, container, sourcePath, plugin);
+function renderDecisionMarkdown(markdown, container, sourcePath, renderChild, view) {
+  if (markdown) {
+    void obsidian.MarkdownRenderer
+      .renderMarkdown(markdown, container, sourcePath, renderChild)
+      .then(() => view.requestMeasure());
+  }
 }
 
-function renderDecisionCardDom(card, view, plugin, sourcePath) {
-  const container = document.createElement("div");
+function renderDecisionCardDom(card, view, sourcePath, renderChild, container = document.createElement("div")) {
   container.className = "dm-decision-card";
   if (card.readOnly) container.classList.add("dm-decision-card-read-only");
 
@@ -430,7 +449,7 @@ function renderDecisionCardDom(card, view, plugin, sourcePath) {
   const context = document.createElement("div");
   context.className = "dm-decision-context";
   fieldset.append(context);
-  renderDecisionMarkdown(card.contextMarkdown, context, sourcePath, plugin);
+  renderDecisionMarkdown(card.contextMarkdown, context, sourcePath, renderChild, view);
 
   const choices = document.createElement("div");
   choices.className = "dm-decision-choices";
@@ -447,7 +466,7 @@ function renderDecisionCardDom(card, view, plugin, sourcePath) {
     const detail = document.createElement("div");
     detail.className = "dm-decision-choice-detail";
     choices.append(detail);
-    renderDecisionMarkdown(choice.text, detail, sourcePath, plugin);
+    renderDecisionMarkdown(choice.text, detail, sourcePath, renderChild, view);
 
     if (!card.readOnly) {
       input.addEventListener("change", () => {
@@ -471,7 +490,9 @@ function renderDecisionCardDom(card, view, plugin, sourcePath) {
   fieldset.append(answer);
   if (!card.readOnly) {
     answer.addEventListener("input", () => {
-      dispatchDecisionAction(view, card.id, { type: "set-answer", value: answer.value });
+      if (dispatchDecisionAction(view, card.id, { type: "set-answer", value: answer.value })) {
+        syncDecisionCardDom(container, view, card.id, false);
+      }
     });
   }
 
@@ -517,7 +538,7 @@ function renderDecisionCardDom(card, view, plugin, sourcePath) {
     const result = document.createElement("div");
     result.className = "dm-decision-result";
     container.append(result);
-    renderDecisionMarkdown(card.resultMarkdown, result, sourcePath, plugin);
+    renderDecisionMarkdown(card.resultMarkdown, result, sourcePath, renderChild, view);
   }
 
   return container;
@@ -566,8 +587,9 @@ class CampaignKnowledgeSettingTab extends obsidian.PluginSettingTab {
 }
 
 function createLivePreviewExtension(plugin) {
-  const { RangeSetBuilder } = require("@codemirror/state");
+  const { RangeSetBuilder, StateField } = require("@codemirror/state");
   const { Decoration, EditorView, ViewPlugin, WidgetType } = require("@codemirror/view");
+  const renderChildren = new WeakMap();
 
   class CampaignKnowledgeWidget extends WidgetType {
     constructor(parsed, sourcePath) {
@@ -599,13 +621,21 @@ function createLivePreviewExtension(plugin) {
     }
 
     eq(other) {
-      return other.card.id === this.card.id &&
-        other.card.state === this.card.state &&
-        other.sourcePath === this.sourcePath;
+      return decisionWidgetEqKey(other.card, other.sourcePath) === decisionWidgetEqKey(this.card, this.sourcePath);
     }
 
     toDOM(view) {
-      return renderDecisionCardDom(this.card, view, plugin, this.sourcePath);
+      const container = document.createElement("div");
+      const renderChild = new obsidian.MarkdownRenderChild(container);
+      renderChild.load();
+      renderChildren.set(container, renderChild);
+      return renderDecisionCardDom(this.card, view, this.sourcePath, renderChild, container);
+    }
+
+    destroy(dom) {
+      const renderChild = renderChildren.get(dom);
+      if (renderChild) renderChild.unload();
+      renderChildren.delete(dom);
     }
 
     ignoreEvent() {
@@ -613,31 +643,66 @@ function createLivePreviewExtension(plugin) {
     }
   }
 
-  function buildDecorations(view) {
+  function isLivePreview(state) {
+    return !obsidian.editorLivePreviewField || state.field(obsidian.editorLivePreviewField, false);
+  }
+
+  function buildDecisionDecorations(state) {
     if (!plugin.settings.enableLivePreview || !plugin.settings.previewMode) {
       return Decoration.none;
     }
 
-    if (obsidian.editorLivePreviewField && !view.state.field(obsidian.editorLivePreviewField)) {
+    if (!isLivePreview(state)) {
       return Decoration.none;
     }
 
-    const markdown = view.state.doc.toString();
     const builder = new RangeSetBuilder();
-    const sourcePath = getActiveSourcePath(plugin);
+    const sourcePath = getEditorSourcePath(state);
 
-    for (const item of collectPreviewRanges(markdown, view.visibleRanges)) {
-      if (item.block) {
-        builder.add(
-          item.from,
-          item.to,
-          Decoration.replace({
-            widget: new DecisionCardWidget(item.card, sourcePath),
-            block: true,
-            inclusive: false
-          })
-        );
-      } else if (!selectionTouchesLine(view, item)) {
+    for (const item of collectDecisionRanges(state.doc.toString())) {
+      builder.add(
+        item.from,
+        item.to,
+        Decoration.replace({
+          widget: new DecisionCardWidget(item.card, sourcePath),
+          block: true,
+          inclusive: false
+        })
+      );
+    }
+
+    return builder.finish();
+  }
+
+  const decisionDecorations = StateField.define({
+    create(state) {
+      return buildDecisionDecorations(state);
+    },
+    update(decorations, transaction) {
+      if (
+        transaction.docChanged ||
+        getEditorSourcePath(transaction.startState) !== getEditorSourcePath(transaction.state) ||
+        isLivePreview(transaction.startState) !== isLivePreview(transaction.state)
+      ) {
+        return buildDecisionDecorations(transaction.state);
+      }
+      return decorations;
+    },
+    provide: (field) => [
+      EditorView.decorations.from(field),
+      EditorView.atomicRanges.of((view) => view.state.field(field))
+    ]
+  });
+
+  function buildInlineDecorations(view) {
+    if (!plugin.settings.enableLivePreview || !plugin.settings.previewMode || !isLivePreview(view.state)) {
+      return Decoration.none;
+    }
+
+    const builder = new RangeSetBuilder();
+    const sourcePath = getEditorSourcePath(view.state);
+    for (const item of collectPreviewRanges(view.state.doc.toString(), view.visibleRanges)) {
+      if (!item.block && !selectionTouchesLine(view, item)) {
         builder.add(
           item.from,
           item.to,
@@ -652,10 +717,10 @@ function createLivePreviewExtension(plugin) {
     return builder.finish();
   }
 
-  return ViewPlugin.fromClass(
+  return [decisionDecorations, ViewPlugin.fromClass(
     class {
       constructor(view) {
-        this.decorations = buildDecorations(view);
+        this.decorations = buildInlineDecorations(view);
       }
 
       update(update) {
@@ -665,7 +730,7 @@ function createLivePreviewExtension(plugin) {
           update.selectionSet ||
           update.focusChanged
         ) {
-          this.decorations = buildDecorations(update.view);
+          this.decorations = buildInlineDecorations(update.view);
         }
       }
     },
@@ -676,7 +741,7 @@ function createLivePreviewExtension(plugin) {
         return instance ? instance.decorations : Decoration.none;
       })
     }
-  );
+  )];
 }
 
 async function renderPreviewDom(parsed, container, sourcePath, component) {
@@ -834,7 +899,7 @@ function copyBlockAttributes(source, target) {
   }
 }
 
-function getActiveSourcePath(plugin) {
-  const activeFile = plugin.app.workspace.getActiveFile();
-  return activeFile ? activeFile.path : "";
+function getEditorSourcePath(state) {
+  if (!obsidian.editorInfoField) return "";
+  return state.field(obsidian.editorInfoField, false)?.file?.path || "";
 }
