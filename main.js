@@ -122,6 +122,7 @@ class CampaignKnowledgeMarkupPlugin extends obsidian.Plugin {
   }
 
   refreshViews() {
+    this.app.workspace.updateOptions();
     this.app.workspace.trigger("layout-change");
   }
 };
@@ -132,7 +133,8 @@ CampaignKnowledgeMarkupPlugin.__test = {
   collectDecisionRanges,
   collectPreviewRanges,
   decisionWidgetEqKey,
-  parseDecisionCards
+  parseDecisionCards,
+  previewEnabled
 };
 
 function parseDecisionCards(markdown) {
@@ -145,6 +147,10 @@ function parseDecisionCards(markdown) {
     const card = parseDecisionCard(markdown.slice(from, to), from, to, heading);
     return card ? [card] : [];
   });
+}
+
+function previewEnabled(settings) {
+  return Boolean(settings.enableLivePreview && settings.previewMode);
 }
 
 function parseDecisionCard(raw, from, to, heading) {
@@ -648,7 +654,7 @@ function createLivePreviewExtension(plugin) {
   }
 
   function buildDecisionDecorations(state) {
-    if (!plugin.settings.enableLivePreview || !plugin.settings.previewMode) {
+    if (!previewEnabled(plugin.settings)) {
       return Decoration.none;
     }
 
@@ -695,7 +701,7 @@ function createLivePreviewExtension(plugin) {
   });
 
   function buildInlineDecorations(view) {
-    if (!plugin.settings.enableLivePreview || !plugin.settings.previewMode || !isLivePreview(view.state)) {
+    if (!previewEnabled(plugin.settings) || !isLivePreview(view.state)) {
       return Decoration.none;
     }
 
