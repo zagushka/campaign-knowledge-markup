@@ -122,7 +122,7 @@ class CampaignKnowledgeMarkupPlugin extends obsidian.Plugin {
   }
 
   refreshViews() {
-    this.app.workspace.updateOptions();
+    this.refreshDecisionCardDecorations?.();
     this.app.workspace.trigger("layout-change");
   }
 };
@@ -134,7 +134,8 @@ CampaignKnowledgeMarkupPlugin.__test = {
   collectPreviewRanges,
   decisionWidgetEqKey,
   parseDecisionCards,
-  previewEnabled
+  previewEnabled,
+  shouldRebuildDecisionField
 };
 
 function parseDecisionCards(markdown) {
@@ -151,6 +152,10 @@ function parseDecisionCards(markdown) {
 
 function previewEnabled(settings) {
   return Boolean(settings.enableLivePreview && settings.previewMode);
+}
+
+function shouldRebuildDecisionField({ docChanged, sourceChanged, livePreviewChanged, refreshRequested }) {
+  return docChanged || sourceChanged || livePreviewChanged || refreshRequested;
 }
 
 function parseDecisionCard(raw, from, to, heading) {
@@ -593,9 +598,21 @@ class CampaignKnowledgeSettingTab extends obsidian.PluginSettingTab {
 }
 
 function createLivePreviewExtension(plugin) {
-  const { RangeSetBuilder, StateField } = require("@codemirror/state");
+  const { RangeSetBuilder, StateEffect, StateField } = require("@codemirror/state");
   const { Decoration, EditorView, ViewPlugin, WidgetType } = require("@codemirror/view");
   const renderChildren = new WeakMap();
+  const liveViews = plugin.livePreviewViews = new Set();
+  const refreshDecisionDecorations = StateEffect.define();
+
+  plugin.refreshDecisionCardDecorations = () => {
+    for (const view of liveViews) {
+      if (view.destroyed) {
+        liveViews.delete(view);
+      } else {
+        view.dispatch({ effects: refreshDecisionDecorations.of(null) });
+      }
+    }
+  };
 
   class CampaignKnowledgeWidget extends WidgetType {
     constructor(parsed, sourcePath) {
@@ -685,11 +702,12 @@ function createLivePreviewExtension(plugin) {
       return buildDecisionDecorations(state);
     },
     update(decorations, transaction) {
-      if (
-        transaction.docChanged ||
-        getEditorSourcePath(transaction.startState) !== getEditorSourcePath(transaction.state) ||
-        isLivePreview(transaction.startState) !== isLivePreview(transaction.state)
-      ) {
+      if (shouldRebuildDecisionField({
+        docChanged: transaction.docChanged,
+        sourceChanged: getEditorSourcePath(transaction.startState) !== getEditorSourcePath(transaction.state),
+        livePreviewChanged: isLivePreview(transaction.startState) !== isLivePreview(transaction.state),
+        refreshRequested: transaction.effects.some((effect) => effect.is(refreshDecisionDecorations))
+      })) {
         return buildDecisionDecorations(transaction.state);
       }
       return decorations;
@@ -726,6 +744,8 @@ function createLivePreviewExtension(plugin) {
   return [decisionDecorations, ViewPlugin.fromClass(
     class {
       constructor(view) {
+        this.view = view;
+        liveViews.add(view);
         this.decorations = buildInlineDecorations(view);
       }
 
@@ -734,10 +754,17 @@ function createLivePreviewExtension(plugin) {
           update.docChanged ||
           update.viewportChanged ||
           update.selectionSet ||
-          update.focusChanged
+          update.focusChanged ||
+          update.transactions.some((transaction) =>
+            transaction.effects.some((effect) => effect.is(refreshDecisionDecorations))
+          )
         ) {
           this.decorations = buildInlineDecorations(update.view);
         }
+      }
+
+      destroy() {
+        liveViews.delete(this.view);
       }
     },
     {

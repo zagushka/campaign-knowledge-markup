@@ -16,7 +16,8 @@ const {
   collectPreviewRanges,
   decisionWidgetEqKey,
   parseDecisionCards,
-  previewEnabled
+  previewEnabled,
+  shouldRebuildDecisionField
 } = Plugin.__test;
 
 const DRAFT = `<!-- dnd-packet: schema: v2 -->
@@ -52,6 +53,18 @@ const [card] = parseDecisionCards(DRAFT);
 assert.equal(previewEnabled({ enableLivePreview: true, previewMode: true }), true);
 assert.equal(previewEnabled({ enableLivePreview: false, previewMode: true }), false);
 assert.equal(previewEnabled({ enableLivePreview: true, previewMode: false }), false);
+assert.equal(shouldRebuildDecisionField({
+  docChanged: false,
+  sourceChanged: false,
+  livePreviewChanged: false,
+  refreshRequested: false
+}), false);
+assert.equal(shouldRebuildDecisionField({
+  docChanged: false,
+  sourceChanged: false,
+  livePreviewChanged: false,
+  refreshRequested: true
+}), true);
 assert.equal(card.id, "DC-20260904-01");
 assert.equal(card.title, "Связь Эдрика и Марты");
 assert.equal(card.question, "как распределены роли?");
