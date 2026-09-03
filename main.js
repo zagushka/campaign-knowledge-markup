@@ -127,7 +127,7 @@ class CampaignKnowledgeMarkupPlugin extends obsidian.Plugin {
 };
 
 module.exports = CampaignKnowledgeMarkupPlugin;
-CampaignKnowledgeMarkupPlugin.__test = { parseDecisionCards };
+CampaignKnowledgeMarkupPlugin.__test = { applyDecisionAction, parseDecisionCards };
 
 function parseDecisionCards(markdown) {
   if (!markdown.includes(PACKET_SCHEMA_MARKER)) return [];
@@ -226,6 +226,94 @@ function parseDecisionCard(raw, from, to, heading) {
       ? raw.slice(resultStart + "<!-- dnd-packet: result:start -->".length, resultEnd).trim()
       : ""
   };
+}
+
+function replaceRanges(text, replacements) {
+  return replacements
+    .slice()
+    .sort((left, right) => right.from - left.from)
+    .reduce(
+      (result, replacement) =>
+        result.slice(0, replacement.from) + replacement.insert + result.slice(replacement.to),
+      text
+    );
+}
+
+function checkboxReplacement(raw, card, item, checked) {
+  const start = item.from - card.from;
+  const bracket = raw.indexOf("[", start);
+  return { from: bracket + 1, to: bracket + 2, insert: checked ? "x" : " " };
+}
+
+function answerBodyReplacement(raw, card, value) {
+  const marker = "<!-- dnd-packet: answer:start -->";
+  const start = card.answerFrom - card.from + marker.length;
+  const end = card.answerTo - card.from - "<!-- dnd-packet: answer:end -->".length;
+  const lines = value ? value.split("\n").map((line) => `> ${line}`).join("\n") : "";
+  return {
+    from: start,
+    to: end,
+    insert: `\n**${card.answerLabel}:**\n\n${lines}${lines ? "\n" : ""}`
+  };
+}
+
+function setExclusiveChoice(raw, card, choiceId) {
+  const choice = card.choices.find((item) => item.id === choiceId);
+  if (!choice) return raw;
+  const replacements = [...card.choices, ...card.routes]
+    .map((item) => checkboxReplacement(raw, card, item, false));
+  if (!choice.checked) replacements.push(checkboxReplacement(raw, card, choice, true));
+  return replaceRanges(raw, replacements);
+}
+
+function setExclusiveRoute(raw, card, routeId) {
+  const route = card.routes.find((item) => item.id === routeId);
+  if (!route) return raw;
+  const replacements = [...card.choices, ...card.routes]
+    .map((item) => checkboxReplacement(raw, card, item, false));
+  if (!route.checked) replacements.push(checkboxReplacement(raw, card, route, true));
+  replacements.push(answerBodyReplacement(raw, card, ""));
+  return replaceRanges(raw, replacements);
+}
+
+function setAnswer(raw, card, value) {
+  if (typeof value !== "string") return raw;
+  const replacements = card.routes.map((item) => checkboxReplacement(raw, card, item, false));
+  replacements.push(answerBodyReplacement(raw, card, value));
+  return replaceRanges(raw, replacements);
+}
+
+function setRouteDetail(raw, card, routeId, value) {
+  if (typeof value !== "string") return raw;
+  const route = card.routes.find((item) => item.id === routeId);
+  if (!route) return raw;
+  const start = route.from - card.from;
+  const end = route.to - card.from;
+  const line = raw.slice(start, end);
+  const bold = line.match(/(\*\*[^*\n]+\*\*)[ \t]*(.*)$/u);
+  if (!bold) return raw;
+  const detailFrom = start + bold.index + bold[1].length;
+  return replaceRanges(raw, [{ from: detailFrom, to: end, insert: value ? ` ${value}` : "" }]);
+}
+
+function applyDecisionAction(markdown, cardId, action) {
+  const card = parseDecisionCards(markdown).find((item) => item.id === cardId);
+  if (!card || card.readOnly || !action) return null;
+
+  let raw = card.raw;
+  if (action.type === "toggle-choice") {
+    raw = setExclusiveChoice(raw, card, action.choiceId);
+  } else if (action.type === "set-answer") {
+    raw = setAnswer(raw, card, action.value);
+  } else if (action.type === "toggle-route") {
+    raw = setExclusiveRoute(raw, card, action.route);
+  } else if (action.type === "set-route-detail") {
+    raw = setRouteDetail(raw, card, action.route, action.value);
+  } else {
+    return null;
+  }
+
+  return raw === card.raw ? null : { from: card.from, to: card.to, insert: raw };
 }
 
 class CampaignKnowledgeSettingTab extends obsidian.PluginSettingTab {
