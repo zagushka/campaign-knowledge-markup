@@ -154,6 +154,7 @@
 }
 
 .dm-decision-recommendation {
+  margin-inline-start: 0.45rem;
   color: var(--text-muted);
   font-size: 0.9em;
   font-weight: 600;
