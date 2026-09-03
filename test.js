@@ -14,6 +14,7 @@ const {
   applyDecisionAction,
   collectDecisionRanges,
   collectPreviewRanges,
+  decisionChoicePresentation,
   decisionWidgetEqKey,
   parseDecisionCards,
   previewEnabled,
@@ -71,6 +72,14 @@ assert.equal(card.question, "как распределены роли?");
 assert.equal(card.contextMarkdown, "Нужно определить полномочия.");
 assert.deepEqual(card.choices.map(({ id, checked }) => [id, checked]), [["A", false], ["B", true]]);
 assert.equal(card.choices[1].recommended, true);
+assert.deepEqual(decisionChoicePresentation({ recommended: true, text: "Описание B." }), {
+  detail: "Описание B.",
+  showRecommendation: true
+});
+assert.deepEqual(decisionChoicePresentation({ recommended: true, text: "Описание B. ← рекомендация" }), {
+  detail: "Описание B.",
+  showRecommendation: true
+});
 assert.equal(card.answer, "Текущий ответ.");
 assert.equal(card.state, "draft");
 assert.equal(card.readOnly, false);

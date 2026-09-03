@@ -132,6 +132,7 @@ CampaignKnowledgeMarkupPlugin.__test = {
   applyDecisionAction,
   collectDecisionRanges,
   collectPreviewRanges,
+  decisionChoicePresentation,
   decisionWidgetEqKey,
   parseDecisionCards,
   previewEnabled,
@@ -152,6 +153,11 @@ function parseDecisionCards(markdown) {
 
 function previewEnabled(settings) {
   return Boolean(settings.enableLivePreview && settings.previewMode);
+}
+
+function decisionChoicePresentation(choice) {
+  const detail = choice.text.trim().replace(/\s*←\s*рекомендация\s*$/iu, "").trim();
+  return { detail, showRecommendation: Boolean(choice.recommended) };
 }
 
 function shouldRebuildDecisionField({ docChanged, sourceChanged, livePreviewChanged, refreshRequested }) {
@@ -467,17 +473,25 @@ function renderDecisionCardDom(card, view, sourcePath, renderChild, container = 
   fieldset.append(choices);
   for (const choice of card.choices) {
     const label = document.createElement("label");
+    label.className = "dm-decision-choice";
     const input = document.createElement("input");
     input.type = "checkbox";
     input.checked = choice.checked;
     input.dataset.dmChoice = choice.id;
     label.append(input, ` ${choice.id}. ${choice.label}`);
+    const presentation = decisionChoicePresentation(choice);
+    if (presentation.showRecommendation) {
+      const recommendation = document.createElement("span");
+      recommendation.className = "dm-decision-recommendation";
+      recommendation.textContent = "Рекомендация";
+      label.append(recommendation);
+    }
     choices.append(label);
 
     const detail = document.createElement("div");
     detail.className = "dm-decision-choice-detail";
     choices.append(detail);
-    renderDecisionMarkdown(choice.text, detail, sourcePath, renderChild, view);
+    renderDecisionMarkdown(presentation.detail, detail, sourcePath, renderChild, view);
 
     if (!card.readOnly) {
       input.addEventListener("change", () => {
@@ -495,6 +509,7 @@ function renderDecisionCardDom(card, view, sourcePath, renderChild, container = 
   fieldset.append(answerLabel);
 
   const answer = document.createElement("textarea");
+  answer.className = "dm-decision-answer";
   answer.id = answerId;
   answer.dataset.dmAnswer = "true";
   answer.value = card.answer;
@@ -524,6 +539,7 @@ function renderDecisionCardDom(card, view, sourcePath, renderChild, container = 
     routeBlock.append(label);
 
     const detail = document.createElement("input");
+    detail.className = "dm-decision-route-detail";
     detail.type = "text";
     detail.value = route.detail;
     detail.dataset.dmRouteDetail = route.id;

@@ -153,6 +153,12 @@
   color: var(--interactive-accent);
 }
 
+.dm-decision-recommendation {
+  color: var(--text-muted);
+  font-size: 0.9em;
+  font-weight: 600;
+}
+
 .dm-decision-choice-detail {
   margin: -0.1rem 0 0.35rem 1.45rem;
 }
