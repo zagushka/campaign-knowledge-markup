@@ -63,3 +63,47 @@ recommendation flag.
 
 The parser intentionally follows the card markers and shape defined in Task 1;
 future editing/rendering tasks may consume the included absolute ranges.
+
+## Fix Round 1
+
+### Covering tests
+
+Added a malformed-card test with two `decide-later` markers and no `emergent`
+marker. Added an answer test that verifies `>  ` becomes one remaining leading
+space and preserves trailing spaces.
+
+### RED
+
+Command: `node test.js`
+
+Relevant failure:
+
+```text
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
++ actual - expected
++ [ { id: 'DC-20260904-01', ... routes: [decide-later, decide-later] } ]
+- []
+```
+
+The failure showed duplicate route IDs were accepted. The whitespace assertion
+was not reached until the route validation failure was fixed.
+
+### GREEN
+
+Command: `npm run check`
+
+Output:
+
+```text
+> campaign-knowledge-markup@0.2.0 check
+> node --check main.js && node test.js
+```
+
+Exit code: `0`.
+
+### Files and self-review
+
+Updated `main.js`, `test.js`, and this report. Validation now requires one each
+of `decide-later` and `emergent`. Answer parsing removes only `>` plus one
+optional following space from quoted lines, while removing only structural
+blank lines around the answer body. No editable marker ranges were added.

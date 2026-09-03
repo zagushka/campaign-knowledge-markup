@@ -53,6 +53,12 @@ assert.equal(card.state, "draft");
 assert.equal(card.readOnly, false);
 assert.deepEqual(parseDecisionCards("### DC-20260904-01 — Без схемы"), []);
 
+const MISSING_ROUTE = DRAFT.replace("<!-- dnd-packet: choice: emergent -->", "<!-- dnd-packet: choice: decide-later -->");
+assert.deepEqual(parseDecisionCards(MISSING_ROUTE), []);
+
+const WHITESPACE = DRAFT.replace("> Текущий ответ.", ">  Текущий ответ.  ");
+assert.equal(parseDecisionCards(WHITESPACE)[0].answer, " Текущий ответ.  ");
+
 const FINAL = DRAFT
   .replace("state: draft", "state: processed")
   .replace("<!-- dnd-packet: fingerprint: -->", "<!-- dnd-packet: fingerprint: sha256:abc -->");

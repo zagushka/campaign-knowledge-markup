@@ -152,7 +152,11 @@ function parseDecisionCard(raw, from, to, heading) {
   const matches = Array.from(raw.matchAll(CHOICE_MARKER_PATTERN));
   const ordinary = matches.filter((match) => /^[A-Z]$/u.test(match[1]));
   const routes = matches.filter((match) => match[1] === "decide-later" || match[1] === "emergent");
-  if (ordinary.length < 2 || ordinary.length > 4 || routes.length !== 2) return null;
+  if (
+    ordinary.length < 2 || ordinary.length > 4 ||
+    routes.length !== 2 ||
+    new Set(routes.map((match) => match[1])).size !== 2
+  ) return null;
 
   const recommendation = raw.match(/<!-- dnd-packet: recommendation: ([A-Z]) -->/u);
   const firstChoiceAt = matches[0]?.index ?? raw.length;
@@ -195,8 +199,9 @@ function parseDecisionCard(raw, from, to, heading) {
   const answerLines = raw.slice(answerStart + "<!-- dnd-packet: answer:start -->".length, answerEnd)
     .split("\n")
     .filter((line, index) => !(index === 1 && /^\*\*.+\*\*\s*$/u.test(line.trim())))
-    .map((line) => line.replace(/^> ?/u, "").trim())
-    .filter(Boolean);
+    .map((line) => line.replace(/^> ?/u, ""));
+  while (answerLines[0] === "") answerLines.shift();
+  while (answerLines.at(-1) === "") answerLines.pop();
   const answerLabelMatch = raw.slice(answerStart, answerEnd).match(/^\*\*(.+?)\*\*\s*$/mu);
   const resultStart = raw.indexOf("<!-- dnd-packet: result:start -->");
   const resultEnd = raw.indexOf("<!-- dnd-packet: result:end -->");
