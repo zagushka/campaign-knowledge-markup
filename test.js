@@ -104,3 +104,18 @@ assert.match(changed, /> Ответ DM/u);
 
 assert.equal(applyDecisionAction(DRAFT, "DC-20990101-99", { type: "set-answer", value: "x" }), null);
 assert.equal(applyDecisionAction(FINAL, "DC-20260904-01", { type: "set-answer", value: "x" }), null);
+
+const ANSWER_CONTENT = DRAFT.replace(
+  "> Текущий ответ.",
+  "> Текущий ответ.\n<!-- сохраняется -->\n\nСвободная заметка.",
+);
+changed = apply(ANSWER_CONTENT, { type: "toggle-route", route: "decide-later" });
+assert.match(changed, /\*\*Уточнение или свой ответ:\*\*\n\n>\n<!-- сохраняется -->\n\nСвободная заметка\./u);
+
+changed = apply(DRAFT, {
+  type: "set-route-detail",
+  route: "decide-later",
+  value: "Первая строка\r\n### Не новый заголовок"
+});
+assert.match(changed, /\*\*Решить позже:\*\* Первая строка ### Не новый заголовок/u);
+assert.doesNotMatch(changed, /\n### Не новый заголовок/u);

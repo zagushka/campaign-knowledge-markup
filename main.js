@@ -249,11 +249,24 @@ function answerBodyReplacement(raw, card, value) {
   const marker = "<!-- dnd-packet: answer:start -->";
   const start = card.answerFrom - card.from + marker.length;
   const end = card.answerTo - card.from - "<!-- dnd-packet: answer:end -->".length;
+  const existing = raw.slice(start, end);
+  const label = existing.match(/^\n([^\n]*)/u)?.[1] || `**${card.answerLabel}**`;
   const lines = value ? value.split("\n").map((line) => `> ${line}`).join("\n") : "";
   return {
     from: start,
     to: end,
-    insert: `\n**${card.answerLabel}:**\n\n${lines}${lines ? "\n" : ""}`
+    insert: `\n${label}\n\n${lines}${lines ? "\n" : ""}`
+  };
+}
+
+function clearQuotedAnswer(raw, card) {
+  const marker = "<!-- dnd-packet: answer:start -->";
+  const start = card.answerFrom - card.from + marker.length;
+  const end = card.answerTo - card.from - "<!-- dnd-packet: answer:end -->".length;
+  return {
+    from: start,
+    to: end,
+    insert: raw.slice(start, end).replace(/^> ?.*$/gmu, ">")
   };
 }
 
@@ -272,7 +285,7 @@ function setExclusiveRoute(raw, card, routeId) {
   const replacements = [...card.choices, ...card.routes]
     .map((item) => checkboxReplacement(raw, card, item, false));
   if (!route.checked) replacements.push(checkboxReplacement(raw, card, route, true));
-  replacements.push(answerBodyReplacement(raw, card, ""));
+  replacements.push(clearQuotedAnswer(raw, card));
   return replaceRanges(raw, replacements);
 }
 
@@ -293,7 +306,8 @@ function setRouteDetail(raw, card, routeId, value) {
   const bold = line.match(/(\*\*[^*\n]+\*\*)[ \t]*(.*)$/u);
   if (!bold) return raw;
   const detailFrom = start + bold.index + bold[1].length;
-  return replaceRanges(raw, [{ from: detailFrom, to: end, insert: value ? ` ${value}` : "" }]);
+  const detail = value.replace(/[\r\n]+/gu, " ");
+  return replaceRanges(raw, [{ from: detailFrom, to: end, insert: detail ? ` ${detail}` : "" }]);
 }
 
 function applyDecisionAction(markdown, cardId, action) {
