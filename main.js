@@ -34,8 +34,12 @@ const OUTCOME_CONFIG = {
 };
 
 const FULL_LINE_PATTERN = /^\[(?<access>[^\]]+)\]\{(?<checks>[^}]+)\}(?:\{(?<type>[^}]+)\})?\s+(?<outcomes>.+?)\s*$/u;
+const PACKET_SCHEMA_MARKER = "<!-- dnd-packet: schema: v2 -->";
+const CARD_HEADING_PATTERN = /^### (DC-\d{8}-\d{2}) — (.+)$/gmu;
+const CARD_STATE_PATTERN = /<!-- dnd-packet: state: (draft|processed|deferred|emergent) -->/u;
+const CHOICE_MARKER_PATTERN = /<!-- dnd-packet: choice: ([A-Z]|decide-later|emergent) -->\n- \[([ xX])\] \*\*(.+?)\*\*(?:[ \t]*(.*))?$/gmu;
 
-module.exports = class CampaignKnowledgeMarkupPlugin extends obsidian.Plugin {
+class CampaignKnowledgeMarkupPlugin extends obsidian.Plugin {
   async onload() {
     await this.loadSettings();
 
@@ -121,6 +125,103 @@ module.exports = class CampaignKnowledgeMarkupPlugin extends obsidian.Plugin {
     this.app.workspace.trigger("layout-change");
   }
 };
+
+module.exports = CampaignKnowledgeMarkupPlugin;
+CampaignKnowledgeMarkupPlugin.__test = { parseDecisionCards };
+
+function parseDecisionCards(markdown) {
+  if (!markdown.includes(PACKET_SCHEMA_MARKER)) return [];
+
+  const headings = Array.from(markdown.matchAll(CARD_HEADING_PATTERN));
+  return headings.flatMap((heading, index) => {
+    const from = heading.index;
+    const to = index + 1 < headings.length ? headings[index + 1].index : markdown.length;
+    const card = parseDecisionCard(markdown.slice(from, to), from, to, heading);
+    return card ? [card] : [];
+  });
+}
+
+function parseDecisionCard(raw, from, to, heading) {
+  const stateMatch = raw.match(CARD_STATE_PATTERN);
+  if (!stateMatch) return null;
+
+  const answerStart = raw.indexOf("<!-- dnd-packet: answer:start -->");
+  const answerEnd = raw.indexOf("<!-- dnd-packet: answer:end -->");
+  if (answerStart < 0 || answerEnd < answerStart) return null;
+
+  const matches = Array.from(raw.matchAll(CHOICE_MARKER_PATTERN));
+  const ordinary = matches.filter((match) => /^[A-Z]$/u.test(match[1]));
+  const routes = matches.filter((match) => match[1] === "decide-later" || match[1] === "emergent");
+  if (ordinary.length < 2 || ordinary.length > 4 || routes.length !== 2) return null;
+
+  const recommendation = raw.match(/<!-- dnd-packet: recommendation: ([A-Z]) -->/u);
+  const firstChoiceAt = matches[0]?.index ?? raw.length;
+  const questionMatch = raw.match(/^\*\*Вопрос:\*\*\s*(.+)$/mu);
+  if (!questionMatch) return null;
+
+  const contextStart = questionMatch.index + questionMatch[0].length;
+  const contextMarkdown = raw.slice(contextStart, firstChoiceAt).trim();
+  const lineRange = (match) => {
+    const markerFrom = from + match.index;
+    const lineEnd = raw.indexOf("\n", match.index + match[0].length);
+    return { from: markerFrom, to: from + (lineEnd < 0 ? raw.length : lineEnd) };
+  };
+  const parseChoice = (match) => {
+    const bold = match[3].trim();
+    const labelMatch = bold.match(/^([A-Z])\.\s*(.*?)(?:\.)?$/u);
+    const id = match[1];
+    const label = labelMatch && labelMatch[1] === id ? labelMatch[2] : bold;
+    return {
+      id,
+      label,
+      text: (match[4] || "").trim(),
+      checked: match[2].toLowerCase() === "x",
+      recommended: Boolean(recommendation && recommendation[1] === id),
+      ...lineRange(match)
+    };
+  };
+  const parseRoute = (match) => {
+    const bold = match[3].trim();
+    const detail = (match[4] || "").trim();
+    return {
+      id: match[1],
+      label: bold.replace(/:$/u, ""),
+      detail,
+      checked: match[2].toLowerCase() === "x",
+      ...lineRange(match)
+    };
+  };
+
+  const answerLines = raw.slice(answerStart + "<!-- dnd-packet: answer:start -->".length, answerEnd)
+    .split("\n")
+    .filter((line, index) => !(index === 1 && /^\*\*.+\*\*\s*$/u.test(line.trim())))
+    .map((line) => line.replace(/^> ?/u, "").trim())
+    .filter(Boolean);
+  const answerLabelMatch = raw.slice(answerStart, answerEnd).match(/^\*\*(.+?)\*\*\s*$/mu);
+  const resultStart = raw.indexOf("<!-- dnd-packet: result:start -->");
+  const resultEnd = raw.indexOf("<!-- dnd-packet: result:end -->");
+
+  return {
+    id: heading[1],
+    from,
+    to,
+    raw,
+    title: heading[2].trim(),
+    question: questionMatch[1].trim(),
+    contextMarkdown,
+    choices: ordinary.map(parseChoice),
+    answerLabel: answerLabelMatch ? answerLabelMatch[1].trim() : "Уточнение или свой ответ",
+    answer: answerLines.join("\n"),
+    answerFrom: from + answerStart,
+    answerTo: from + answerEnd + "<!-- dnd-packet: answer:end -->".length,
+    routes: routes.map(parseRoute),
+    state: stateMatch[1],
+    readOnly: stateMatch[1] !== "draft",
+    resultMarkdown: resultStart >= 0 && resultEnd > resultStart
+      ? raw.slice(resultStart + "<!-- dnd-packet: result:start -->".length, resultEnd).trim()
+      : ""
+  };
+}
 
 class CampaignKnowledgeSettingTab extends obsidian.PluginSettingTab {
   constructor(app, plugin) {
