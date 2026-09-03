@@ -10,7 +10,7 @@ Module._load = function load(request, parent, isMain) {
 };
 
 const Plugin = require("./main.js");
-const { applyDecisionAction, parseDecisionCards } = Plugin.__test;
+const { applyDecisionAction, collectDecisionRanges, collectPreviewRanges, parseDecisionCards } = Plugin.__test;
 
 const DRAFT = `<!-- dnd-packet: schema: v2 -->
 
@@ -66,6 +66,22 @@ assert.equal(parseDecisionCards(FINAL)[0].readOnly, true);
 
 const BROKEN = DRAFT.replace("<!-- dnd-packet: answer:end -->", "");
 assert.deepEqual(parseDecisionCards(BROKEN), []);
+
+const ranges = collectDecisionRanges(DRAFT);
+assert.equal(ranges.length, 1);
+assert.equal(DRAFT.slice(ranges[0].from, ranges[0].to), ranges[0].card.raw);
+assert.equal(ranges[0].block, true);
+
+const PREVIEW_DOCUMENT = `[Слух]{Проверка(12)} + Известно.
+
+${DRAFT.replace("Нужно определить полномочия.", "Нужно определить полномочия.\n[Факт]{Проверка(10)} - Неизвестно.")}`;
+const previewRanges = collectPreviewRanges(PREVIEW_DOCUMENT, [
+  { from: 0, to: PREVIEW_DOCUMENT.length },
+  { from: DRAFT.indexOf("###"), to: PREVIEW_DOCUMENT.length }
+]);
+assert.deepEqual(previewRanges.map((range) => range.block), [false, true]);
+assert.ok(previewRanges.every((range, index) => index === 0 || previewRanges[index - 1].to <= range.from));
+assert.equal(previewRanges[1].card.raw, PREVIEW_DOCUMENT.slice(previewRanges[1].from));
 
 const apply = (markdown, action) => {
   const change = applyDecisionAction(markdown, "DC-20260904-01", action);

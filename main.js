@@ -127,7 +127,12 @@ class CampaignKnowledgeMarkupPlugin extends obsidian.Plugin {
 };
 
 module.exports = CampaignKnowledgeMarkupPlugin;
-CampaignKnowledgeMarkupPlugin.__test = { applyDecisionAction, parseDecisionCards };
+CampaignKnowledgeMarkupPlugin.__test = {
+  applyDecisionAction,
+  collectDecisionRanges,
+  collectPreviewRanges,
+  parseDecisionCards
+};
 
 function parseDecisionCards(markdown) {
   if (!markdown.includes(PACKET_SCHEMA_MARKER)) return [];
@@ -226,6 +231,45 @@ function parseDecisionCard(raw, from, to, heading) {
       ? raw.slice(resultStart + "<!-- dnd-packet: result:start -->".length, resultEnd).trim()
       : ""
   };
+}
+
+function collectDecisionRanges(markdown) {
+  return parseDecisionCards(markdown).map((card) => ({
+    from: card.from,
+    to: card.to,
+    block: true,
+    card
+  }));
+}
+
+function rangesOverlap(left, right) {
+  return left.from < right.to && right.from < left.to;
+}
+
+function collectPreviewRanges(markdown, visibleRanges) {
+  const decisionRanges = collectDecisionRanges(markdown);
+  const previewRanges = decisionRanges.slice();
+  let from = 0;
+
+  while (from <= markdown.length) {
+    const newline = markdown.indexOf("\n", from);
+    const to = newline < 0 ? markdown.length : newline;
+    const line = { from, to, text: markdown.slice(from, to) };
+    const visible = visibleRanges.some((range) => line.from <= range.to && range.from <= line.to);
+
+    if (
+      visible &&
+      !decisionRanges.some((range) => rangesOverlap(line, range))
+    ) {
+      const parsed = parseCampaignLine(line.text);
+      if (parsed) previewRanges.push({ ...line, block: false, parsed });
+    }
+
+    if (newline < 0) break;
+    from = newline + 1;
+  }
+
+  return previewRanges.sort((left, right) => left.from - right.from || left.to - right.to);
 }
 
 function replaceRanges(text, replacements) {
@@ -330,6 +374,155 @@ function applyDecisionAction(markdown, cardId, action) {
   return raw === card.raw ? null : { from: card.from, to: card.to, insert: raw };
 }
 
+function dispatchDecisionAction(view, cardId, action) {
+  const change = applyDecisionAction(view.state.doc.toString(), cardId, action);
+  if (!change) {
+    new obsidian.Notice("Карточка изменилась или доступна только для чтения.");
+    return false;
+  }
+
+  view.dispatch({ changes: change });
+  return true;
+}
+
+function syncDecisionCardDom(container, view, cardId) {
+  const card = parseDecisionCards(view.state.doc.toString()).find((item) => item.id === cardId);
+  if (!card) return;
+
+  for (const input of container.querySelectorAll("input[data-dm-choice]")) {
+    input.checked = card.choices.find((choice) => choice.id === input.dataset.dmChoice)?.checked || false;
+  }
+
+  for (const input of container.querySelectorAll("input[data-dm-route]")) {
+    input.checked = card.routes.find((route) => route.id === input.dataset.dmRoute)?.checked || false;
+  }
+
+  const answer = container.querySelector("textarea[data-dm-answer]");
+  if (answer) answer.value = card.answer;
+
+  for (const input of container.querySelectorAll("input[data-dm-route-detail]")) {
+    input.value = card.routes.find((route) => route.id === input.dataset.dmRouteDetail)?.detail || "";
+  }
+}
+
+function renderDecisionMarkdown(markdown, container, sourcePath, plugin) {
+  if (markdown) void obsidian.MarkdownRenderer.renderMarkdown(markdown, container, sourcePath, plugin);
+}
+
+function renderDecisionCardDom(card, view, plugin, sourcePath) {
+  const container = document.createElement("div");
+  container.className = "dm-decision-card";
+  if (card.readOnly) container.classList.add("dm-decision-card-read-only");
+
+  const fieldset = document.createElement("fieldset");
+  fieldset.disabled = card.readOnly;
+  container.append(fieldset);
+
+  const legend = document.createElement("legend");
+  legend.textContent = card.title;
+  fieldset.append(legend);
+
+  const question = document.createElement("p");
+  question.className = "dm-decision-question";
+  question.textContent = card.question;
+  fieldset.append(question);
+
+  const context = document.createElement("div");
+  context.className = "dm-decision-context";
+  fieldset.append(context);
+  renderDecisionMarkdown(card.contextMarkdown, context, sourcePath, plugin);
+
+  const choices = document.createElement("div");
+  choices.className = "dm-decision-choices";
+  fieldset.append(choices);
+  for (const choice of card.choices) {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = choice.checked;
+    input.dataset.dmChoice = choice.id;
+    label.append(input, ` ${choice.id}. ${choice.label}`);
+    choices.append(label);
+
+    const detail = document.createElement("div");
+    detail.className = "dm-decision-choice-detail";
+    choices.append(detail);
+    renderDecisionMarkdown(choice.text, detail, sourcePath, plugin);
+
+    if (!card.readOnly) {
+      input.addEventListener("change", () => {
+        if (dispatchDecisionAction(view, card.id, { type: "toggle-choice", choiceId: choice.id })) {
+          syncDecisionCardDom(container, view, card.id);
+        }
+      });
+    }
+  }
+
+  const answerLabel = document.createElement("label");
+  const answerId = `dm-decision-answer-${card.id}`;
+  answerLabel.htmlFor = answerId;
+  answerLabel.textContent = card.answerLabel;
+  fieldset.append(answerLabel);
+
+  const answer = document.createElement("textarea");
+  answer.id = answerId;
+  answer.dataset.dmAnswer = "true";
+  answer.value = card.answer;
+  fieldset.append(answer);
+  if (!card.readOnly) {
+    answer.addEventListener("input", () => {
+      dispatchDecisionAction(view, card.id, { type: "set-answer", value: answer.value });
+    });
+  }
+
+  const routes = document.createElement("div");
+  routes.className = "dm-decision-routes";
+  fieldset.append(routes);
+  for (const route of card.routes) {
+    const routeBlock = document.createElement("div");
+    routeBlock.className = "dm-decision-route";
+    routes.append(routeBlock);
+
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = route.checked;
+    input.dataset.dmRoute = route.id;
+    label.append(input, ` ${route.label}`);
+    routeBlock.append(label);
+
+    const detail = document.createElement("input");
+    detail.type = "text";
+    detail.value = route.detail;
+    detail.dataset.dmRouteDetail = route.id;
+    routeBlock.append(detail);
+
+    if (!card.readOnly) {
+      input.addEventListener("change", () => {
+        if (dispatchDecisionAction(view, card.id, { type: "toggle-route", route: route.id })) {
+          syncDecisionCardDom(container, view, card.id);
+        }
+      });
+      detail.addEventListener("input", () => {
+        dispatchDecisionAction(view, card.id, {
+          type: "set-route-detail",
+          route: route.id,
+          value: detail.value
+        });
+      });
+    }
+  }
+
+  if (card.resultMarkdown) {
+    const result = document.createElement("div");
+    result.className = "dm-decision-result";
+    container.append(result);
+    renderDecisionMarkdown(card.resultMarkdown, result, sourcePath, plugin);
+  }
+
+  return container;
+}
+
 class CampaignKnowledgeSettingTab extends obsidian.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
@@ -352,7 +545,7 @@ class CampaignKnowledgeSettingTab extends obsidian.PluginSettingTab {
 
     new obsidian.Setting(containerEl)
       .setName("Render in Live Preview")
-      .setDesc("Replace inactive united DC check lines while editing in Live Preview.")
+      .setDesc("Render campaign checks and DM decision cards in Live Preview.")
       .addToggle((toggle) => {
         toggle.setValue(this.plugin.settings.enableLivePreview).onChange(async (value) => {
           this.plugin.settings.enableLivePreview = value;
@@ -362,7 +555,7 @@ class CampaignKnowledgeSettingTab extends obsidian.PluginSettingTab {
 
     new obsidian.Setting(containerEl)
       .setName("Preview mode")
-      .setDesc("Show formatted previews. When disabled, matching lines stay as plain raw text with checks visible.")
+      .setDesc("Show campaign previews and DM decision forms. Disable to edit their raw Markdown.")
       .addToggle((toggle) => {
         toggle.setValue(this.plugin.settings.previewMode).onChange(async (value) => {
           this.plugin.settings.previewMode = value;
@@ -398,6 +591,28 @@ function createLivePreviewExtension(plugin) {
     }
   }
 
+  class DecisionCardWidget extends WidgetType {
+    constructor(card, sourcePath) {
+      super();
+      this.card = card;
+      this.sourcePath = sourcePath;
+    }
+
+    eq(other) {
+      return other.card.id === this.card.id &&
+        other.card.state === this.card.state &&
+        other.sourcePath === this.sourcePath;
+    }
+
+    toDOM(view) {
+      return renderDecisionCardDom(this.card, view, plugin, this.sourcePath);
+    }
+
+    ignoreEvent() {
+      return true;
+    }
+  }
+
   function buildDecorations(view) {
     if (!plugin.settings.enableLivePreview || !plugin.settings.previewMode) {
       return Decoration.none;
@@ -407,38 +622,30 @@ function createLivePreviewExtension(plugin) {
       return Decoration.none;
     }
 
+    const markdown = view.state.doc.toString();
     const builder = new RangeSetBuilder();
     const sourcePath = getActiveSourcePath(plugin);
 
-    for (const { from, to } of view.visibleRanges) {
-      let position = from;
-      while (position <= to) {
-        const line = view.state.doc.lineAt(position);
-        const parsed = parseCampaignLine(line.text);
-
-        if (!parsed || selectionTouchesLine(view, line)) {
-          if (line.to >= to) {
-            break;
-          }
-
-          position = line.to + 1;
-          continue;
-        }
-
+    for (const item of collectPreviewRanges(markdown, view.visibleRanges)) {
+      if (item.block) {
         builder.add(
-          line.from,
-          line.to,
+          item.from,
+          item.to,
           Decoration.replace({
-            widget: new CampaignKnowledgeWidget(parsed, sourcePath),
+            widget: new DecisionCardWidget(item.card, sourcePath),
+            block: true,
             inclusive: false
           })
         );
-
-        if (line.to >= to) {
-          break;
-        }
-
-        position = line.to + 1;
+      } else if (!selectionTouchesLine(view, item)) {
+        builder.add(
+          item.from,
+          item.to,
+          Decoration.replace({
+            widget: new CampaignKnowledgeWidget(item.parsed, sourcePath),
+            inclusive: false
+          })
+        );
       }
     }
 
