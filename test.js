@@ -258,6 +258,15 @@ const secondViewModel = decisionCardViewModel(twoCards[1]);
 assert.notEqual(draftViewModel.answer.id, secondViewModel.answer.id);
 assert.notEqual(draftViewModel.routes[0].detailId, secondViewModel.routes[0].detailId);
 
+const ADJACENT_CARDS = `${FIRST_CARD}\n\n${SECOND_CARD}`;
+const adjacentRanges = collectDecisionRanges(ADJACENT_CARDS);
+assert.equal(adjacentRanges.length, 2);
+assert.equal(
+  ADJACENT_CARDS.slice(adjacentRanges[0].to, adjacentRanges[1].from),
+  "\n\n",
+  "block widgets leave the Markdown separator between adjacent decision cards"
+);
+
 const DUPLICATE_CARD_IDS = TWO_CARDS.replace("DC-20260904-02", "DC-20260904-01");
 assert.deepEqual(parseDecisionCards(DUPLICATE_CARD_IDS), [], "duplicate card IDs are all rejected");
 assert.equal(

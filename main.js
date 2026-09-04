@@ -158,8 +158,9 @@ function parseDecisionCards(markdown) {
   return headings.flatMap((heading, index) => {
     if (idCounts.get(heading[1]) !== 1) return [];
     const from = heading.index;
-    const to = index + 1 < headings.length ? headings[index + 1].index : markdown.length;
-    const card = parseDecisionCard(markdown.slice(from, to), from, to, heading);
+    const boundary = index + 1 < headings.length ? headings[index + 1].index : markdown.length;
+    const raw = markdown.slice(from, boundary).replace(/(?:\r?\n[ \t]*)+$/u, "");
+    const card = parseDecisionCard(raw, from, from + raw.length, heading);
     return card ? [card] : [];
   });
 }
