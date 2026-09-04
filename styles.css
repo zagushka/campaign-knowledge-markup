@@ -109,6 +109,14 @@
   font-weight: 700;
 }
 
+.dm-decision-id {
+  margin-inline-start: 0.45rem;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .dm-decision-question {
   margin: 0.65rem 0 0.35rem;
   font-weight: 600;

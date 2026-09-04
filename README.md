@@ -41,7 +41,9 @@ into a compact preview:
 - --: Ошибочно принимает его за неопытного.
 ```
 
-The raw markdown remains the source of truth. The plugin only changes presentation.
+For campaign-check previews, the raw Markdown remains the source of truth and
+the plugin changes only presentation. DM decision forms edit the note as
+described below.
 
 ## DM Decision Cards
 

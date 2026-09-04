@@ -34,10 +34,15 @@ const OUTCOME_CONFIG = {
 };
 
 const FULL_LINE_PATTERN = /^\[(?<access>[^\]]+)\]\{(?<checks>[^}]+)\}(?:\{(?<type>[^}]+)\})?\s+(?<outcomes>.+?)\s*$/u;
-const PACKET_SCHEMA_MARKER = "<!-- dnd-packet: schema: v2 -->";
-const CARD_HEADING_PATTERN = /^### (DC-\d{8}-\d{2}) — (.+)$/gmu;
-const CARD_STATE_PATTERN = /<!-- dnd-packet: state: (draft|processed|deferred|emergent) -->/u;
-const CHOICE_MARKER_PATTERN = /<!-- dnd-packet: choice: ([A-Z]|decide-later|emergent) -->\n- \[([ xX])\] \*\*(.+?)\*\*(?:[ \t]*(.*))?$/gmu;
+const PACKET_SCHEMA_PATTERN = /^<!-- dnd-packet: schema: v2 -->\r?$/mu;
+const CARD_HEADING_PATTERN = /^### (DC-\d{8}-\d{2}) — (.+?)\r?$/gmu;
+const CARD_STATE_PATTERN = /^<!-- dnd-packet: state: (draft|processed|deferred|emergent) -->\r?$/gmu;
+const ANSWER_START_PATTERN = /^<!-- dnd-packet: answer:start -->\r?$/gmu;
+const ANSWER_END_PATTERN = /^<!-- dnd-packet: answer:end -->\r?$/gmu;
+const FINGERPRINT_PATTERN = /^<!-- dnd-packet: fingerprint:(?: ([^>\r\n]+))? -->\r?$/gmu;
+const RECOMMENDATION_PATTERN = /^<!-- dnd-packet: recommendation: ([A-Z]) -->\r?$/gmu;
+const CHOICE_MARKER_PATTERN = /^<!-- dnd-packet: choice: ([A-Z]|decide-later|emergent) -->\r?\n- \[([ xX])\] \*\*(.+?)\*\*(?:[ \t]*([^\r\n]*))?\r?$/gmu;
+const HIDDEN_PACKET_LINE_PATTERN = /^<!-- dnd-packet: [^\r\n]+ -->\r?$/u;
 
 class CampaignKnowledgeMarkupPlugin extends obsidian.Plugin {
   async onload() {
@@ -132,18 +137,26 @@ CampaignKnowledgeMarkupPlugin.__test = {
   applyDecisionAction,
   collectDecisionRanges,
   collectPreviewRanges,
+  collectVisibleLines,
+  decisionCardViewModel,
   decisionChoicePresentation,
   decisionWidgetEqKey,
+  decisionWidgetUpdateMode,
   parseDecisionCards,
   previewEnabled,
   shouldRebuildDecisionField
 };
 
 function parseDecisionCards(markdown) {
-  if (!markdown.includes(PACKET_SCHEMA_MARKER)) return [];
+  if (!PACKET_SCHEMA_PATTERN.test(markdown)) return [];
 
   const headings = Array.from(markdown.matchAll(CARD_HEADING_PATTERN));
+  const idCounts = headings.reduce((counts, heading) => {
+    counts.set(heading[1], (counts.get(heading[1]) || 0) + 1);
+    return counts;
+  }, new Map());
   return headings.flatMap((heading, index) => {
+    if (idCounts.get(heading[1]) !== 1) return [];
     const from = heading.index;
     const to = index + 1 < headings.length ? headings[index + 1].index : markdown.length;
     const card = parseDecisionCard(markdown.slice(from, to), from, to, heading);
@@ -160,34 +173,68 @@ function decisionChoicePresentation(choice) {
   return { detail, showRecommendation: Boolean(choice.recommended) };
 }
 
+function decisionCardViewModel(card) {
+  return {
+    id: card.id,
+    title: card.title,
+    question: card.question || null,
+    answer: {
+      id: `dm-decision-answer-${card.id}`,
+      label: card.answerLabel
+    },
+    routes: card.routes.map((route) => ({
+      id: route.id,
+      detailId: `dm-decision-route-detail-${card.id}-${route.id}`,
+      detailAriaLabel: route.label
+    }))
+  };
+}
+
 function shouldRebuildDecisionField({ docChanged, sourceChanged, livePreviewChanged, refreshRequested }) {
   return docChanged || sourceChanged || livePreviewChanged || refreshRequested;
 }
 
 function parseDecisionCard(raw, from, to, heading) {
-  const stateMatch = raw.match(CARD_STATE_PATTERN);
-  if (!stateMatch) return null;
-
-  const answerStart = raw.indexOf("<!-- dnd-packet: answer:start -->");
-  const answerEnd = raw.indexOf("<!-- dnd-packet: answer:end -->");
-  if (answerStart < 0 || answerEnd < answerStart) return null;
+  const stateMatches = Array.from(raw.matchAll(CARD_STATE_PATTERN));
+  const answerStarts = Array.from(raw.matchAll(ANSWER_START_PATTERN));
+  const answerEnds = Array.from(raw.matchAll(ANSWER_END_PATTERN));
+  const fingerprints = Array.from(raw.matchAll(FINGERPRINT_PATTERN));
+  const recommendations = Array.from(raw.matchAll(RECOMMENDATION_PATTERN));
+  if (
+    stateMatches.length !== 1 ||
+    answerStarts.length !== 1 ||
+    answerEnds.length !== 1 ||
+    fingerprints.length !== 1 ||
+    recommendations.length > 1 ||
+    answerEnds[0].index < answerStarts[0].index
+  ) return null;
+  const stateMatch = stateMatches[0];
+  const answerStart = answerStarts[0];
+  const answerEnd = answerEnds[0];
 
   const matches = Array.from(raw.matchAll(CHOICE_MARKER_PATTERN));
   const ordinary = matches.filter((match) => /^[A-Z]$/u.test(match[1]));
   const routes = matches.filter((match) => match[1] === "decide-later" || match[1] === "emergent");
   if (
     ordinary.length < 2 || ordinary.length > 4 ||
+    new Set(ordinary.map((match) => match[1])).size !== ordinary.length ||
     routes.length !== 2 ||
     new Set(routes.map((match) => match[1])).size !== 2
   ) return null;
 
-  const recommendation = raw.match(/<!-- dnd-packet: recommendation: ([A-Z]) -->/u);
+  const recommendation = recommendations[0];
   const firstChoiceAt = matches[0]?.index ?? raw.length;
-  const questionMatch = raw.match(/^\*\*Вопрос:\*\*\s*(.+)$/mu);
-  if (!questionMatch) return null;
-
-  const contextStart = questionMatch.index + questionMatch[0].length;
-  const contextMarkdown = raw.slice(contextStart, firstChoiceAt).trim();
+  const headingEnd = raw.indexOf("\n");
+  const visiblePreamble = raw
+    .slice(headingEnd < 0 ? raw.length : headingEnd + 1, firstChoiceAt)
+    .split("\n")
+    .filter((line) => !HIDDEN_PACKET_LINE_PATTERN.test(line))
+    .join("\n")
+    .trim();
+  const questionMatch = visiblePreamble.match(/^\*\*Вопрос:\*\*[ \t]*(.+?)\r?$/mu);
+  const contextMarkdown = questionMatch
+    ? visiblePreamble.slice(questionMatch.index + questionMatch[0].length).trim()
+    : visiblePreamble;
   const lineRange = (match) => {
     const markerFrom = from + match.index;
     const lineEnd = raw.indexOf("\n", match.index + match[0].length);
@@ -219,15 +266,13 @@ function parseDecisionCard(raw, from, to, heading) {
     };
   };
 
-  const answerLines = raw.slice(answerStart + "<!-- dnd-packet: answer:start -->".length, answerEnd)
-    .split("\n")
-    .filter((line, index) => !(index === 1 && /^\*\*.+\*\*\s*$/u.test(line.trim())))
+  const answerSection = raw.slice(answerStart.index + answerStart[0].length, answerEnd.index);
+  const answerLines = answerSection
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith(">"))
     .map((line) => line.replace(/^> ?/u, ""));
-  while (answerLines[0] === "") answerLines.shift();
-  while (answerLines.at(-1) === "") answerLines.pop();
-  const answerLabelMatch = raw.slice(answerStart, answerEnd).match(/^\*\*(.+?)\*\*\s*$/mu);
-  const resultStart = raw.indexOf("<!-- dnd-packet: result:start -->");
-  const resultEnd = raw.indexOf("<!-- dnd-packet: result:end -->");
+  const answerLabelMatch = answerSection.match(/^\*\*(.+?)\*\*[ \t]*\r?$/mu);
+  const fingerprint = fingerprints[0];
 
   return {
     id: heading[1],
@@ -235,18 +280,18 @@ function parseDecisionCard(raw, from, to, heading) {
     to,
     raw,
     title: heading[2].trim(),
-    question: questionMatch[1].trim(),
+    question: questionMatch ? questionMatch[1].trim() : "",
     contextMarkdown,
     choices: ordinary.map(parseChoice),
     answerLabel: answerLabelMatch ? answerLabelMatch[1].trim() : "Уточнение или свой ответ",
     answer: answerLines.join("\n"),
-    answerFrom: from + answerStart,
-    answerTo: from + answerEnd + "<!-- dnd-packet: answer:end -->".length,
+    answerFrom: from + answerStart.index,
+    answerTo: from + answerEnd.index + answerEnd[0].length,
     routes: routes.map(parseRoute),
     state: stateMatch[1],
     readOnly: stateMatch[1] !== "draft",
-    resultMarkdown: resultStart >= 0 && resultEnd > resultStart
-      ? raw.slice(resultStart + "<!-- dnd-packet: result:start -->".length, resultEnd).trim()
+    resultMarkdown: stateMatch[1] !== "draft" && fingerprint
+      ? raw.slice(fingerprint.index + fingerprint[0].length).trim()
       : ""
   };
 }
@@ -264,27 +309,40 @@ function rangesOverlap(left, right) {
   return left.from < right.to && right.from < left.to;
 }
 
+function collectVisibleLines(markdown, visibleRanges) {
+  const lines = [];
+  const seen = new Set();
+
+  for (const range of visibleRanges) {
+    const rangeFrom = Math.max(0, Math.min(markdown.length, range.from));
+    const rangeTo = Math.max(rangeFrom, Math.min(markdown.length, range.to));
+    const emptyRange = rangeFrom === rangeTo;
+    let from = markdown.lastIndexOf("\n", rangeFrom - 1) + 1;
+
+    while ((from < rangeTo || (emptyRange && from <= rangeTo)) && from <= markdown.length) {
+      const newline = markdown.indexOf("\n", from);
+      const to = newline < 0 ? markdown.length : newline;
+      if (!seen.has(from)) {
+        seen.add(from);
+        lines.push({ from, to, text: markdown.slice(from, to) });
+      }
+      if (newline < 0) break;
+      from = newline + 1;
+    }
+  }
+
+  return lines.sort((left, right) => left.from - right.from);
+}
+
 function collectPreviewRanges(markdown, visibleRanges) {
   const decisionRanges = collectDecisionRanges(markdown);
   const previewRanges = decisionRanges.slice();
-  let from = 0;
 
-  while (from <= markdown.length) {
-    const newline = markdown.indexOf("\n", from);
-    const to = newline < 0 ? markdown.length : newline;
-    const line = { from, to, text: markdown.slice(from, to) };
-    const visible = visibleRanges.some((range) => line.from <= range.to && range.from <= line.to);
-
-    if (
-      visible &&
-      !decisionRanges.some((range) => rangesOverlap(line, range))
-    ) {
+  for (const line of collectVisibleLines(markdown, visibleRanges)) {
+    if (!decisionRanges.some((range) => rangesOverlap(line, range))) {
       const parsed = parseCampaignLine(line.text);
       if (parsed) previewRanges.push({ ...line, block: false, parsed });
     }
-
-    if (newline < 0) break;
-    from = newline + 1;
   }
 
   return previewRanges.sort((left, right) => left.from - right.from || left.to - right.to);
@@ -303,6 +361,21 @@ function decisionWidgetEqKey(card, sourcePath) {
     card.routes.map(({ id, label }) => [id, label]),
     card.resultMarkdown
   ]);
+}
+
+function decisionWidgetMutableKey(card) {
+  return JSON.stringify([
+    card.answer,
+    card.choices.map(({ id, checked }) => [id, checked]),
+    card.routes.map(({ id, checked, detail }) => [id, checked, detail])
+  ]);
+}
+
+function decisionWidgetUpdateMode(previousCard, nextCard, previousSourcePath, nextSourcePath) {
+  if (decisionWidgetEqKey(previousCard, previousSourcePath) !== decisionWidgetEqKey(nextCard, nextSourcePath)) {
+    return "replace";
+  }
+  return decisionWidgetMutableKey(previousCard) === decisionWidgetMutableKey(nextCard) ? "equal" : "update";
 }
 
 function replaceRanges(text, replacements) {
@@ -418,10 +491,19 @@ function dispatchDecisionAction(view, cardId, action) {
   return true;
 }
 
-function syncDecisionCardDom(container, view, cardId, syncAnswer = true) {
-  const card = parseDecisionCards(view.state.doc.toString()).find((item) => item.id === cardId);
-  if (!card) return;
+function syncControlValue(input, value) {
+  if (input.value === value) return;
+  const focused = input.ownerDocument?.activeElement === input;
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  const direction = input.selectionDirection;
+  input.value = value;
+  if (focused && start !== null && end !== null) {
+    input.setSelectionRange(Math.min(start, value.length), Math.min(end, value.length), direction || undefined);
+  }
+}
 
+function syncDecisionCardDom(container, card, syncAnswer = true) {
   for (const input of container.querySelectorAll("input[data-dm-choice]")) {
     input.checked = card.choices.find((choice) => choice.id === input.dataset.dmChoice)?.checked || false;
   }
@@ -431,11 +513,19 @@ function syncDecisionCardDom(container, view, cardId, syncAnswer = true) {
   }
 
   const answer = container.querySelector("textarea[data-dm-answer]");
-  if (syncAnswer && answer) answer.value = card.answer;
+  if (syncAnswer && answer) syncControlValue(answer, card.answer);
 
   for (const input of container.querySelectorAll("input[data-dm-route-detail]")) {
-    input.value = card.routes.find((route) => route.id === input.dataset.dmRouteDetail)?.detail || "";
+    syncControlValue(
+      input,
+      card.routes.find((route) => route.id === input.dataset.dmRouteDetail)?.detail || ""
+    );
   }
+}
+
+function syncDecisionCardFromView(container, view, cardId, syncAnswer = true) {
+  const card = parseDecisionCards(view.state.doc.toString()).find((item) => item.id === cardId);
+  if (card) syncDecisionCardDom(container, card, syncAnswer);
 }
 
 function renderDecisionMarkdown(markdown, container, sourcePath, renderChild, view) {
@@ -447,6 +537,7 @@ function renderDecisionMarkdown(markdown, container, sourcePath, renderChild, vi
 }
 
 function renderDecisionCardDom(card, view, sourcePath, renderChild, container = document.createElement("div")) {
+  const model = decisionCardViewModel(card);
   container.className = "dm-decision-card";
   if (card.readOnly) container.classList.add("dm-decision-card-read-only");
 
@@ -455,13 +546,19 @@ function renderDecisionCardDom(card, view, sourcePath, renderChild, container = 
   container.append(fieldset);
 
   const legend = document.createElement("legend");
-  legend.textContent = card.title;
+  legend.textContent = model.title;
+  const cardId = document.createElement("span");
+  cardId.className = "dm-decision-id";
+  cardId.textContent = model.id;
+  legend.append(" ", cardId);
   fieldset.append(legend);
 
-  const question = document.createElement("p");
-  question.className = "dm-decision-question";
-  question.textContent = card.question;
-  fieldset.append(question);
+  if (model.question) {
+    const question = document.createElement("p");
+    question.className = "dm-decision-question";
+    question.textContent = model.question;
+    fieldset.append(question);
+  }
 
   const context = document.createElement("div");
   context.className = "dm-decision-context";
@@ -496,28 +593,27 @@ function renderDecisionCardDom(card, view, sourcePath, renderChild, container = 
     if (!card.readOnly) {
       input.addEventListener("change", () => {
         if (dispatchDecisionAction(view, card.id, { type: "toggle-choice", choiceId: choice.id })) {
-          syncDecisionCardDom(container, view, card.id);
+          syncDecisionCardFromView(container, view, card.id);
         }
       });
     }
   }
 
   const answerLabel = document.createElement("label");
-  const answerId = `dm-decision-answer-${card.id}`;
-  answerLabel.htmlFor = answerId;
-  answerLabel.textContent = card.answerLabel;
+  answerLabel.htmlFor = model.answer.id;
+  answerLabel.textContent = model.answer.label;
   fieldset.append(answerLabel);
 
   const answer = document.createElement("textarea");
   answer.className = "dm-decision-answer";
-  answer.id = answerId;
+  answer.id = model.answer.id;
   answer.dataset.dmAnswer = "true";
   answer.value = card.answer;
   fieldset.append(answer);
   if (!card.readOnly) {
     answer.addEventListener("input", () => {
       if (dispatchDecisionAction(view, card.id, { type: "set-answer", value: answer.value })) {
-        syncDecisionCardDom(container, view, card.id, false);
+        syncDecisionCardFromView(container, view, card.id, false);
       }
     });
   }
@@ -526,6 +622,7 @@ function renderDecisionCardDom(card, view, sourcePath, renderChild, container = 
   routes.className = "dm-decision-routes";
   fieldset.append(routes);
   for (const route of card.routes) {
+    const routeModel = model.routes.find((item) => item.id === route.id);
     const routeBlock = document.createElement("div");
     routeBlock.className = "dm-decision-route";
     routes.append(routeBlock);
@@ -541,6 +638,8 @@ function renderDecisionCardDom(card, view, sourcePath, renderChild, container = 
     const detail = document.createElement("input");
     detail.className = "dm-decision-route-detail";
     detail.type = "text";
+    detail.id = routeModel.detailId;
+    detail.setAttribute("aria-label", routeModel.detailAriaLabel);
     detail.value = route.detail;
     detail.dataset.dmRouteDetail = route.id;
     routeBlock.append(detail);
@@ -548,7 +647,7 @@ function renderDecisionCardDom(card, view, sourcePath, renderChild, container = 
     if (!card.readOnly) {
       input.addEventListener("change", () => {
         if (dispatchDecisionAction(view, card.id, { type: "toggle-route", route: route.id })) {
-          syncDecisionCardDom(container, view, card.id);
+          syncDecisionCardFromView(container, view, card.id);
         }
       });
       detail.addEventListener("input", () => {
@@ -660,7 +759,25 @@ function createLivePreviewExtension(plugin) {
     }
 
     eq(other) {
-      return decisionWidgetEqKey(other.card, other.sourcePath) === decisionWidgetEqKey(this.card, this.sourcePath);
+      return decisionWidgetUpdateMode(
+        this.card,
+        other.card,
+        this.sourcePath,
+        other.sourcePath
+      ) === "equal";
+    }
+
+    updateDOM(dom, _view, previous) {
+      if (!previous || decisionWidgetUpdateMode(
+        previous.card,
+        this.card,
+        previous.sourcePath,
+        this.sourcePath
+      ) !== "update") {
+        return false;
+      }
+      syncDecisionCardDom(dom, this.card);
+      return true;
     }
 
     toDOM(view) {
