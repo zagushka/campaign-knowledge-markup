@@ -22,14 +22,22 @@ const {
   decisionWidgetUpdateMode,
   parseDecisionCards,
   previewEnabled,
+  sourceLinksWithBasenames,
   shouldRebuildDecisionField
 } = Plugin.__test;
 
 const PACKET_SCHEMA_MARKER = "<!-- dnd-packet: schema: v2 -->";
+assert.equal(typeof sourceLinksWithBasenames, "function", "source-link formatter is exported");
+assert.equal(
+  sourceLinksWithBasenames("[[02 World/Вернхейм]], [[03 Characters/Вернхейм/Эдрик Вальт]]"),
+  "[[02 World/Вернхейм|Вернхейм]], [[03 Characters/Вернхейм/Эдрик Вальт|Эдрик Вальт]]",
+  "source links show file names while keeping full targets"
+);
 const DRAFT = `<!-- dnd-packet: schema: v2 -->
 
 ### DC-20260904-01 — Связь Эдрика и Марты
 
+<!-- dnd-packet: sources: [[02 World/Вернхейм]], [[03 Characters/Вернхейм/Эдрик Вальт]] -->
 <!-- dnd-packet: recommendation: B -->
 
 **Вопрос:** как распределены роли?
@@ -75,6 +83,11 @@ assert.equal(card.id, "DC-20260904-01");
 assert.equal(card.title, "Связь Эдрика и Марты");
 assert.equal(card.question, "как распределены роли?");
 assert.equal(card.contextMarkdown, "Нужно определить полномочия.");
+assert.equal(
+  card.sourcesMarkdown,
+  "[[02 World/Вернхейм]], [[03 Characters/Вернхейм/Эдрик Вальт]]",
+  "source wikilinks are available to the card renderer"
+);
 assert.deepEqual(card.choices.map(({ id, checked }) => [id, checked]), [["A", false], ["B", true]]);
 assert.equal(card.choices[1].recommended, true);
 assert.deepEqual(decisionChoicePresentation({ recommended: true, text: "Описание B." }), {
@@ -341,8 +354,14 @@ const routeDetailOnlyCard = parseDecisionCards(DRAFT
   .replace("**Решить позже:**", "**Решить позже:** После разговора"))[0];
 const changedTitleCard = parseDecisionCards(DRAFT.replace("Связь Эдрика и Марты", "Новая связь"))[0];
 const changedContextCard = parseDecisionCards(DRAFT.replace("Нужно определить полномочия.", "Другой контекст."))[0];
+const changedSourcesCard = parseDecisionCards(DRAFT.replace("[[02 World/Вернхейм]]", "[[02 World/Другой источник]]"))[0];
 assert.equal(decisionWidgetEqKey(card, "split-a.md"), decisionWidgetEqKey(answerOnlyCard, "split-a.md"));
 assert.notEqual(decisionWidgetEqKey(card, "split-a.md"), decisionWidgetEqKey(changedTitleCard, "split-a.md"));
+assert.notEqual(
+  decisionWidgetEqKey(card, "split-a.md"),
+  decisionWidgetEqKey(changedSourcesCard, "split-a.md"),
+  "changed sources replace the rendered widget"
+);
 assert.notEqual(decisionWidgetEqKey(card, "split-a.md"), decisionWidgetEqKey(card, "split-b.md"));
 assert.equal(decisionWidgetUpdateMode(card, card, "split-a.md", "split-a.md"), "equal");
 assert.equal(

@@ -41,6 +41,7 @@ const ANSWER_START_PATTERN = /^<!-- dnd-packet: answer:start -->\r?$/gmu;
 const ANSWER_END_PATTERN = /^<!-- dnd-packet: answer:end -->\r?$/gmu;
 const FINGERPRINT_PATTERN = /^<!-- dnd-packet: fingerprint:(?: ([^>\r\n]+))? -->\r?$/gmu;
 const RECOMMENDATION_PATTERN = /^<!-- dnd-packet: recommendation: ([A-Z]) -->\r?$/gmu;
+const SOURCES_PATTERN = /^<!-- dnd-packet: sources: ([^>\r\n]+) -->\r?$/mu;
 const CHOICE_MARKER_PATTERN = /^<!-- dnd-packet: choice: ([A-Z]|decide-later|emergent) -->\r?\n- \[([ xX])\] \*\*(.+?)\*\*(?:[ \t]*([^\r\n]*))?\r?$/gmu;
 const HIDDEN_PACKET_LINE_PATTERN = /^<!-- dnd-packet: [^\r\n]+ -->\r?$/u;
 
@@ -145,6 +146,7 @@ CampaignKnowledgeMarkupPlugin.__test = {
   decisionWidgetUpdateMode,
   parseDecisionCards,
   previewEnabled,
+  sourceLinksWithBasenames,
   shouldRebuildDecisionField
 };
 
@@ -173,6 +175,13 @@ function previewEnabled(settings) {
 function decisionChoicePresentation(choice) {
   const detail = choice.text.trim().replace(/\s*←\s*рекомендация\s*$/iu, "").trim();
   return { detail, showRecommendation: Boolean(choice.recommended) };
+}
+
+function sourceLinksWithBasenames(markdown) {
+  return markdown.replace(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/gu, (link, target) => {
+    const filename = target.slice(target.lastIndexOf("/") + 1).replace(/#.*$/u, "");
+    return filename ? `[[${target}|${filename}]]` : link;
+  });
 }
 
 function decisionCardViewModel(card) {
@@ -275,6 +284,7 @@ function parseDecisionCard(raw, from, to, heading) {
     .map((line) => line.replace(/^> ?/u, ""));
   const answerLabelMatch = answerSection.match(/^\*\*(.+?)\*\*[ \t]*\r?$/mu);
   const fingerprint = fingerprints[0];
+  const sources = raw.match(SOURCES_PATTERN);
 
   return {
     id: heading[1],
@@ -284,6 +294,7 @@ function parseDecisionCard(raw, from, to, heading) {
     title: heading[2].trim(),
     question: questionMatch ? questionMatch[1].trim() : "",
     contextMarkdown,
+    sourcesMarkdown: sources ? sources[1].trim() : "",
     choices: ordinary.map(parseChoice),
     answerLabel: answerLabelMatch ? answerLabelMatch[1].trim() : "Уточнение или свой ответ",
     answer: answerLines.join("\n"),
@@ -358,6 +369,7 @@ function decisionWidgetEqKey(card, sourcePath) {
     card.title,
     card.question,
     card.contextMarkdown,
+    card.sourcesMarkdown,
     card.answerLabel,
     card.choices.map(({ id, label, text, recommended }) => [id, label, text, recommended]),
     card.routes.map(({ id, label }) => [id, label]),
@@ -570,6 +582,19 @@ function renderDecisionCardDom(card, view, sourcePath, renderChild, container = 
   context.className = "dm-decision-context";
   fieldset.append(context);
   renderDecisionMarkdown(card.contextMarkdown, context, sourcePath, renderChild, view);
+
+  if (card.sourcesMarkdown) {
+    const sources = document.createElement("div");
+    sources.className = "dm-decision-sources";
+    fieldset.append(sources);
+    renderDecisionMarkdown(
+      `**Источники вопроса:** ${sourceLinksWithBasenames(card.sourcesMarkdown)}`,
+      sources,
+      sourcePath,
+      renderChild,
+      view
+    );
+  }
 
   const choices = document.createElement("div");
   choices.className = "dm-decision-choices";

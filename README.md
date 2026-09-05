@@ -50,6 +50,7 @@ described below.
 Decision cards use the `<!-- dnd-packet: schema: v2 -->` marker and render as
 forms in Live Preview. Cards with `state: draft` are editable; cards with
 `state: processed`, `deferred`, or `emergent` are read-only.
+The card shows `sources` as clickable links with file names instead of full paths.
 
 Choose one ordinary option at a time, or click the selected option again to
 clear it. Choosing `Решить позже` or `Не определять заранее` clears ordinary
