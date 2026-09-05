@@ -139,7 +139,10 @@ CampaignKnowledgeMarkupPlugin.__test = {
   collectDecisionRanges,
   collectPreviewRanges,
   collectVisibleLines,
+  decisionCardComplete,
+  decisionCardShouldCollapse,
   decisionCardViewModel,
+  decisionCardSummaryLines,
   decisionChoicePresentation,
   decisionWidgetCanUpdateDom,
   decisionWidgetEqKey,
@@ -175,6 +178,37 @@ function previewEnabled(settings) {
 function decisionChoicePresentation(choice) {
   const detail = choice.text.trim().replace(/\s*←\s*рекомендация\s*$/iu, "").trim();
   return { detail, showRecommendation: Boolean(choice.recommended) };
+}
+
+function decisionCardSummaryLines(card) {
+  const answer = card.answer.trim().replace(/\s+/gu, " ");
+  const routed = card.routes.find((route) => route.checked) || card.routes.find((route) =>
+    (card.state === "deferred" && route.id === "decide-later") ||
+    (card.state === "emergent" && route.id === "emergent")
+  );
+  if (routed) {
+    const label = routed.id === "decide-later" ? "Отложено до" : "Определит игра/игрок";
+    return [`${label}: ${routed.detail.trim() || "не указано"}`];
+  }
+
+  const selected = card.choices.find((choice) => choice.checked);
+  const lines = selected ? [`Принято: ${selected.id}. ${selected.label}`] : [];
+  if (answer) lines.push(`Ответ: ${answer}`);
+  return lines.length ? lines : ["Обработано"];
+}
+
+function decisionCardComplete(card) {
+  const choices = card.choices.filter((choice) => choice.checked);
+  const routes = card.routes.filter((route) => route.checked);
+  const answer = card.answer.trim();
+  if (routes.length) {
+    return routes.length === 1 && choices.length === 0 && !answer && Boolean(routes[0].detail.trim());
+  }
+  return choices.length === 1 || (choices.length === 0 && Boolean(answer));
+}
+
+function decisionCardShouldCollapse(card) {
+  return card.readOnly || decisionCardComplete(card);
 }
 
 function sourceLinksWithBasenames(markdown) {
@@ -310,12 +344,23 @@ function parseDecisionCard(raw, from, to, heading) {
 }
 
 function collectDecisionRanges(markdown) {
-  return parseDecisionCards(markdown).map((card) => ({
-    from: card.from,
-    to: card.to,
-    block: true,
-    card
+  const cards = parseDecisionCards(markdown);
+  const tocEntries = cards.map((card) => ({
+    id: card.id,
+    title: card.title,
+    done: decisionCardComplete(card),
+    from: card.from
   }));
+  return cards.map((card, index) => {
+    const next = cards[index + 1];
+    const separator = next ? markdown.slice(card.to, next.from) : "";
+    return {
+      from: card.from,
+      to: next && !separator.trim() ? next.from : card.to,
+      block: true,
+      card: index === 0 ? { ...card, tocEntries } : card
+    };
+  });
 }
 
 function rangesOverlap(left, right) {
@@ -370,6 +415,7 @@ function decisionWidgetEqKey(card, sourcePath) {
     card.question,
     card.contextMarkdown,
     card.sourcesMarkdown,
+    card.tocEntries?.map(({ id }) => id),
     card.answerLabel,
     card.choices.map(({ id, label, text, recommended }) => [id, label, text, recommended]),
     card.routes.map(({ id, label }) => [id, label]),
@@ -522,6 +568,14 @@ function syncControlValue(input, value) {
 }
 
 function syncDecisionCardDom(container, card, syncAnswer = true) {
+  for (const button of container.querySelectorAll("button[data-dm-toc]")) {
+    const entry = card.tocEntries?.find((item) => item.id === button.dataset.dmToc);
+    if (entry) {
+      button.textContent = `[${entry.done ? "x" : " "}] ${entry.title}`;
+      button.dataset.dmTocFrom = String(entry.from);
+    }
+  }
+
   for (const input of container.querySelectorAll("input[data-dm-choice]")) {
     input.checked = card.choices.find((choice) => choice.id === input.dataset.dmChoice)?.checked || false;
   }
@@ -556,20 +610,75 @@ function renderDecisionMarkdown(markdown, container, sourcePath, renderChild, vi
 
 function renderDecisionCardDom(card, view, sourcePath, renderChild, container = document.createElement("div")) {
   const model = decisionCardViewModel(card);
-  container.className = "dm-decision-card";
-  if (card.readOnly) container.classList.add("dm-decision-card-read-only");
+  const collapsible = decisionCardShouldCollapse(card);
+  container.className = "dm-decision-widget";
+
+  if (card.tocEntries) {
+    const nav = document.createElement("nav");
+    nav.className = "dm-decision-toc";
+    nav.setAttribute("aria-label", "Навигация по карточкам решений");
+    const heading = document.createElement("strong");
+    heading.textContent = "Решения";
+    nav.append(heading);
+    const list = document.createElement("ul");
+    nav.append(list);
+    for (const entry of card.tocEntries) {
+      const item = document.createElement("li");
+      const link = document.createElement("button");
+      link.type = "button";
+      link.dataset.dmToc = entry.id;
+      link.dataset.dmTocFrom = String(entry.from);
+      link.textContent = `[${entry.done ? "x" : " "}] ${entry.title}`;
+      link.addEventListener("click", () => {
+        view.dispatch({ selection: { anchor: Number(link.dataset.dmTocFrom) }, scrollIntoView: true });
+      });
+      item.append(link);
+      list.append(item);
+    }
+    container.append(nav);
+  }
+
+  const cardContainer = document.createElement(collapsible ? "details" : "div");
+  cardContainer.className = "dm-decision-card";
+  cardContainer.dataset.dmDecisionCard = card.id;
+  if (card.readOnly) cardContainer.classList.add("dm-decision-card-read-only");
+  container.append(cardContainer);
+
+  let body = cardContainer;
+  if (collapsible) {
+    const summary = document.createElement("summary");
+    const title = document.createElement("span");
+    title.className = "dm-decision-card-summary-title";
+    title.textContent = model.title;
+    const cardId = document.createElement("span");
+    cardId.className = "dm-decision-id";
+    cardId.textContent = model.id;
+    title.append(" ", cardId);
+    summary.append(title);
+    for (const line of decisionCardSummaryLines(card)) {
+      const outcome = document.createElement("span");
+      outcome.className = "dm-decision-card-summary-line";
+      outcome.textContent = line;
+      summary.append(outcome);
+    }
+    body = document.createElement("div");
+    body.className = "dm-decision-card-body";
+    cardContainer.append(summary, body);
+  }
 
   const fieldset = document.createElement("fieldset");
   fieldset.disabled = card.readOnly;
-  container.append(fieldset);
+  body.append(fieldset);
 
-  const legend = document.createElement("legend");
-  legend.textContent = model.title;
-  const cardId = document.createElement("span");
-  cardId.className = "dm-decision-id";
-  cardId.textContent = model.id;
-  legend.append(" ", cardId);
-  fieldset.append(legend);
+  if (!collapsible) {
+    const legend = document.createElement("legend");
+    legend.textContent = model.title;
+    const cardId = document.createElement("span");
+    cardId.className = "dm-decision-id";
+    cardId.textContent = model.id;
+    legend.append(" ", cardId);
+    fieldset.append(legend);
+  }
 
   if (model.question) {
     const question = document.createElement("p");
@@ -694,7 +803,7 @@ function renderDecisionCardDom(card, view, sourcePath, renderChild, container = 
   if (card.resultMarkdown) {
     const result = document.createElement("div");
     result.className = "dm-decision-result";
-    container.append(result);
+    body.append(result);
     renderDecisionMarkdown(card.resultMarkdown, result, sourcePath, renderChild, view);
   }
 

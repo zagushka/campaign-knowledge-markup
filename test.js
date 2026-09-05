@@ -15,7 +15,10 @@ const {
   collectDecisionRanges,
   collectPreviewRanges,
   collectVisibleLines,
+  decisionCardComplete,
+  decisionCardShouldCollapse,
   decisionCardViewModel,
+  decisionCardSummaryLines,
   decisionChoicePresentation,
   decisionWidgetCanUpdateDom,
   decisionWidgetEqKey,
@@ -64,6 +67,20 @@ const DRAFT = `<!-- dnd-packet: schema: v2 -->
 <!-- dnd-packet: fingerprint: -->`;
 
 const [card] = parseDecisionCards(DRAFT);
+assert.equal(typeof decisionCardComplete, "function", "decision completeness check is exported");
+assert.equal(typeof decisionCardShouldCollapse, "function", "decision collapse rule is exported");
+assert.equal(decisionCardComplete(card), true, "a selected ordinary option answers a draft card");
+assert.equal(decisionCardShouldCollapse(card), true, "an answered draft starts collapsed");
+assert.equal(
+  decisionCardComplete(parseDecisionCards(DRAFT.replace("- [x] **B.", "- [ ] **B.").replace("> Текущий ответ.", ">"))[0]),
+  false,
+  "a draft without a selection or own answer stays unanswered"
+);
+assert.equal(
+  decisionCardComplete(parseDecisionCards(DRAFT.replace("- [x] **B.", "- [ ] **B."))[0]),
+  true,
+  "a custom answer without an ordinary selection answers a draft card"
+);
 assert.equal(previewEnabled({ enableLivePreview: true, previewMode: true }), true);
 assert.equal(previewEnabled({ enableLivePreview: false, previewMode: true }), false);
 assert.equal(previewEnabled({ enableLivePreview: true, previewMode: false }), false);
@@ -113,6 +130,43 @@ const FINAL = DRAFT
   .replace("state: draft", "state: processed")
   .replace("<!-- dnd-packet: fingerprint: -->", "<!-- dnd-packet: fingerprint: sha256:abc -->");
 assert.equal(parseDecisionCards(FINAL)[0].readOnly, true);
+assert.equal(typeof decisionCardSummaryLines, "function", "completed-card summary formatter is exported");
+assert.deepEqual(
+  decisionCardSummaryLines(parseDecisionCards(FINAL)[0]),
+  ["Принято: B. Второй вариант", "Ответ: Текущий ответ."],
+  "a processed card exposes its selected decision and custom answer"
+);
+const DEFERRED = DRAFT
+  .replace("- [x] **B.", "- [ ] **B.")
+  .replace("> Текущий ответ.", ">")
+  .replace("- [ ] **Решить позже:**", "- [x] **Решить позже:** После разговора")
+  .replace("state: draft", "state: deferred");
+assert.deepEqual(
+  decisionCardSummaryLines(parseDecisionCards(DEFERRED)[0]),
+  ["Отложено до: После разговора"],
+  "a deferred card exposes its trigger"
+);
+assert.deepEqual(
+  decisionCardSummaryLines(parseDecisionCards(DEFERRED.replace("state: deferred", "state: draft"))[0]),
+  ["Отложено до: После разговора"],
+  "a routed draft exposes its trigger before processing"
+);
+assert.equal(decisionCardComplete(parseDecisionCards(DEFERRED)[0]), true, "a route with detail answers a card");
+assert.equal(
+  decisionCardComplete(parseDecisionCards(DEFERRED.replace("После разговора", ""))[0]),
+  false,
+  "a selected route without detail stays unanswered"
+);
+const EMERGENT = DRAFT
+  .replace("- [x] **B.", "- [ ] **B.")
+  .replace("> Текущий ответ.", ">")
+  .replace("- [ ] **Не определять заранее:**", "- [x] **Не определять заранее:** Следующая игра")
+  .replace("state: draft", "state: emergent");
+assert.deepEqual(
+  decisionCardSummaryLines(parseDecisionCards(EMERGENT)[0]),
+  ["Определит игра/игрок: Следующая игра"],
+  "an emergent card exposes who or what will decide"
+);
 
 const DATED_DECISION = `<!-- dnd-packet: schema: v2 -->
 
@@ -277,9 +331,34 @@ const adjacentRanges = collectDecisionRanges(ADJACENT_CARDS);
 assert.equal(adjacentRanges.length, 2);
 assert.equal(
   ADJACENT_CARDS.slice(adjacentRanges[0].to, adjacentRanges[1].from),
-  "\n\n",
-  "block widgets leave the Markdown separator between adjacent decision cards"
+  "",
+  "block widgets consume whitespace-only separators between adjacent decision cards"
 );
+
+const COMPLETED_SECOND_CARD = SECOND_CARD
+  .replace("state: draft", "state: processed")
+  .replace("<!-- dnd-packet: fingerprint: -->", "<!-- dnd-packet: fingerprint: sha256:def -->");
+const MIXED_CARDS = `${FIRST_CARD}\n\n${COMPLETED_SECOND_CARD}`;
+const mixedRanges = collectDecisionRanges(MIXED_CARDS);
+assert.deepEqual(
+  mixedRanges[0].card.tocEntries,
+  [
+    {
+      id: "DC-20260904-01",
+      title: "Связь Эдрика и Марты",
+      done: true,
+      from: MIXED_CARDS.indexOf("### DC-20260904-01")
+    },
+    {
+      id: "DC-20260904-02",
+      title: "Второе решение",
+      done: true,
+      from: MIXED_CARDS.indexOf("### DC-20260904-02")
+    }
+  ],
+  "the first card carries navigation for the whole packet"
+);
+assert.equal(mixedRanges[1].card.tocEntries, undefined, "navigation renders only before the first card");
 
 const DUPLICATE_CARD_IDS = TWO_CARDS.replace("DC-20260904-02", "DC-20260904-01");
 assert.deepEqual(parseDecisionCards(DUPLICATE_CARD_IDS), [], "duplicate card IDs are all rejected");
@@ -357,6 +436,11 @@ const changedContextCard = parseDecisionCards(DRAFT.replace("Нужно опре
 const changedSourcesCard = parseDecisionCards(DRAFT.replace("[[02 World/Вернхейм]]", "[[02 World/Другой источник]]"))[0];
 assert.equal(decisionWidgetEqKey(card, "split-a.md"), decisionWidgetEqKey(answerOnlyCard, "split-a.md"));
 assert.notEqual(decisionWidgetEqKey(card, "split-a.md"), decisionWidgetEqKey(changedTitleCard, "split-a.md"));
+assert.equal(
+  decisionWidgetEqKey({ ...card, tocEntries: [{ id: card.id, title: card.title, done: false }] }, "split-a.md"),
+  decisionWidgetEqKey({ ...card, tocEntries: [{ id: card.id, title: card.title, done: true }] }, "split-a.md"),
+  "navigation status updates reuse the rendered widget so focused fields survive"
+);
 assert.notEqual(
   decisionWidgetEqKey(card, "split-a.md"),
   decisionWidgetEqKey(changedSourcesCard, "split-a.md"),

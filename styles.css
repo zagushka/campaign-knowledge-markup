@@ -85,11 +85,44 @@
   color: var(--color-orange);
 }
 
+.dm-decision-widget {
+  display: block;
+  width: 100%;
+}
+
+.dm-decision-toc {
+  margin: 0.75rem 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+}
+
+.dm-decision-toc ul {
+  margin: 0.45rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dm-decision-toc button {
+  padding: 0.15rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-normal);
+  text-align: start;
+  cursor: pointer;
+}
+
+.dm-decision-toc button:hover,
+.dm-decision-toc button:focus-visible {
+  color: var(--interactive-accent);
+}
+
 .dm-decision-card {
   display: block;
   box-sizing: border-box;
   width: 100%;
-  margin: 0.75rem 0;
+  margin: 0.25rem 0;
   padding: 1rem 1.1rem;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
@@ -218,4 +251,22 @@
 
 .dm-decision-card-read-only {
   opacity: 0.9;
+}
+
+.dm-decision-card-read-only > summary {
+  cursor: pointer;
+}
+
+.dm-decision-card-summary-title {
+  font-weight: 700;
+}
+
+.dm-decision-card-summary-line {
+  display: block;
+  margin: 0.25rem 0 0 1.1rem;
+  color: var(--text-muted);
+}
+
+.dm-decision-card-read-only[open] > summary {
+  margin-bottom: 0.85rem;
 }
