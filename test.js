@@ -17,6 +17,7 @@ const {
   collectVisibleLines,
   decisionCardViewModel,
   decisionChoicePresentation,
+  decisionWidgetCanUpdateDom,
   decisionWidgetEqKey,
   decisionWidgetUpdateMode,
   parseDecisionCards,
@@ -367,6 +368,12 @@ assert.equal(
 assert.equal(decisionWidgetUpdateMode(card, changedTitleCard, "split-a.md", "split-a.md"), "replace");
 assert.equal(decisionWidgetUpdateMode(card, changedContextCard, "split-a.md", "split-a.md"), "replace");
 assert.equal(decisionWidgetUpdateMode(card, card, "split-a.md", "split-b.md"), "replace");
+assert.equal(typeof decisionWidgetCanUpdateDom, "function", "widget DOM compatibility check is exported");
+const renderedWidgetKey = decisionWidgetEqKey(card, "split-a.md");
+assert.equal(decisionWidgetCanUpdateDom(renderedWidgetKey, answerOnlyCard, "split-a.md"), true);
+assert.equal(decisionWidgetCanUpdateDom(renderedWidgetKey, routeDetailOnlyCard, "split-a.md"), true);
+assert.equal(decisionWidgetCanUpdateDom(renderedWidgetKey, changedTitleCard, "split-a.md"), false);
+assert.equal(decisionWidgetCanUpdateDom(renderedWidgetKey, card, "split-b.md"), false);
 
 const apply = (markdown, action) => {
   const change = applyDecisionAction(markdown, "DC-20260904-01", action);

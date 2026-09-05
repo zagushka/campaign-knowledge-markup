@@ -140,6 +140,7 @@ CampaignKnowledgeMarkupPlugin.__test = {
   collectVisibleLines,
   decisionCardViewModel,
   decisionChoicePresentation,
+  decisionWidgetCanUpdateDom,
   decisionWidgetEqKey,
   decisionWidgetUpdateMode,
   parseDecisionCards,
@@ -362,6 +363,10 @@ function decisionWidgetEqKey(card, sourcePath) {
     card.routes.map(({ id, label }) => [id, label]),
     card.resultMarkdown
   ]);
+}
+
+function decisionWidgetCanUpdateDom(renderedKey, card, sourcePath) {
+  return renderedKey === decisionWidgetEqKey(card, sourcePath);
 }
 
 function decisionWidgetMutableKey(card) {
@@ -717,6 +722,7 @@ function createLivePreviewExtension(plugin) {
   const { RangeSetBuilder, StateEffect, StateField } = require("@codemirror/state");
   const { Decoration, EditorView, ViewPlugin, WidgetType } = require("@codemirror/view");
   const renderChildren = new WeakMap();
+  const decisionWidgetKeys = new WeakMap();
   const liveViews = plugin.livePreviewViews = new Set();
   const refreshDecisionDecorations = StateEffect.define();
 
@@ -768,15 +774,8 @@ function createLivePreviewExtension(plugin) {
       ) === "equal";
     }
 
-    updateDOM(dom, _view, previous) {
-      if (!previous || decisionWidgetUpdateMode(
-        previous.card,
-        this.card,
-        previous.sourcePath,
-        this.sourcePath
-      ) !== "update") {
-        return false;
-      }
+    updateDOM(dom) {
+      if (!decisionWidgetCanUpdateDom(decisionWidgetKeys.get(dom), this.card, this.sourcePath)) return false;
       syncDecisionCardDom(dom, this.card);
       return true;
     }
@@ -786,7 +785,9 @@ function createLivePreviewExtension(plugin) {
       const renderChild = new obsidian.MarkdownRenderChild(container);
       renderChild.load();
       renderChildren.set(container, renderChild);
-      return renderDecisionCardDom(this.card, view, this.sourcePath, renderChild, container);
+      const dom = renderDecisionCardDom(this.card, view, this.sourcePath, renderChild, container);
+      decisionWidgetKeys.set(dom, decisionWidgetEqKey(this.card, this.sourcePath));
+      return dom;
     }
 
     destroy(dom) {

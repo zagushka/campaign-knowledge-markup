@@ -1,6 +1,6 @@
 {
   "name": "campaign-knowledge-markup",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Obsidian plugin for rendering campaign knowledge and united DC check markup as readable previews.",
   "main": "main.js",
   "scripts": {
